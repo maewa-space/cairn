@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/icon-256.png" alt="Quill" width="128" height="128">
+</p>
+
 # Quill
 
 > Open-source meeting notetaker. Captures system audio + mic, transcribes via Whisper, enhances rough notes into polished writeups using AI templates.

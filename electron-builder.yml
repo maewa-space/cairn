@@ -16,6 +16,7 @@ mac:
   category: public.app-category.productivity
   target:
     - dmg
+  icon: build/icon.icns
   identity: null
   hardenedRuntime: true
   gatekeeperAssess: false
@@ -25,6 +26,7 @@ mac:
     NSAudioCaptureUsageDescription: "Quill transcribes your computer's audio output during meetings."
     NSCalendarsUsageDescription: "Quill shows your upcoming meetings."
 dmg:
+  icon: build/icon.icns
   contents:
     - x: 130
       y: 220
