@@ -45,7 +45,7 @@ export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
       const buf = await chunk.blob.arrayBuffer();
       const ext = chunk.blob.type.includes('mp4') ? 'm4a' : 'webm';
       const filename = `chunk-${chunk.speaker}-${chunk.startedAtMs}.${ext}`;
-      const text = await window.cairn.whisper.transcribe({
+      const text = await window.quill.whisper.transcribe({
         audio: buf,
         filename,
         model: 'whisper-1',
@@ -53,7 +53,7 @@ export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
       });
       const trimmed = text.trim();
       if (!trimmed) return;
-      const entry = await window.cairn.transcript.append({
+      const entry = await window.quill.transcript.append({
         meetingId: chunk.meetingId,
         speaker: chunk.speaker,
         text: trimmed,

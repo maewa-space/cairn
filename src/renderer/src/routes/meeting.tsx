@@ -47,7 +47,7 @@ export function MeetingRoute() {
   // Load meeting
   useEffect(() => {
     if (!id) return;
-    window.cairn.meetings.get(id).then((m) => {
+    window.quill.meetings.get(id).then((m) => {
       if (!m) return;
       setMeeting(m);
       setNotes(m.rawNotes);
@@ -65,7 +65,7 @@ export function MeetingRoute() {
   useEffect(() => {
     if (!id) return;
     const t = window.setTimeout(() => {
-      window.cairn.meetings.saveNotes(id, notesRef.current);
+      window.quill.meetings.saveNotes(id, notesRef.current);
     }, NOTES_DEBOUNCE_MS);
     return () => window.clearTimeout(t);
   }, [notes, id]);
@@ -89,19 +89,19 @@ export function MeetingRoute() {
 
   const onTitleBlur = async () => {
     if (!meeting || titleDraft === meeting.title) return;
-    await window.cairn.meetings.rename(meeting.id, titleDraft || 'Untitled');
+    await window.quill.meetings.rename(meeting.id, titleDraft || 'Untitled');
   };
 
   const stopRecording = useCallback(async () => {
     await capture.stop();
-    if (id) await window.cairn.meetings.end(id);
+    if (id) await window.quill.meetings.end(id);
   }, [capture, id]);
 
   const runEnhance = useCallback(async () => {
     if (!templateId || !id) return;
     setEnhancing(true);
     try {
-      const result = await window.cairn.enhance.run({
+      const result = await window.quill.enhance.run({
         meetingId: id,
         templateId,
         rawNotes: notesRef.current,

@@ -6,14 +6,14 @@ import { tmpdir } from 'node:os';
 let userDataDir: string;
 
 test.beforeAll(() => {
-  userDataDir = mkdtempSync(join(tmpdir(), 'cairn-e2e-'));
+  userDataDir = mkdtempSync(join(tmpdir(), 'quill-e2e-'));
 });
 
 test.afterAll(() => {
   if (userDataDir) rmSync(userDataDir, { recursive: true, force: true });
 });
 
-test('home renders with cairn branding and start CTA', async () => {
+test('home renders with quill branding and start CTA', async () => {
   const electronApp = await electron.launch({
     args: ['.', `--user-data-dir=${userDataDir}`],
     env: {
@@ -24,7 +24,7 @@ test('home renders with cairn branding and start CTA', async () => {
   const window = await electronApp.firstWindow();
   await window.waitForLoadState('domcontentloaded');
 
-  await expect(window.getByText('Cairn').first()).toBeVisible();
+  await expect(window.getByText('Quill').first()).toBeVisible();
   await expect(
     window.getByTestId('start-new-meeting'),
   ).toBeVisible();

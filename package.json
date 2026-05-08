@@ -1,15 +1,15 @@
 {
-  "name": "cairn",
+  "name": "quill",
   "version": "0.1.0",
   "description": "Open-source meeting notetaker. Captures system audio + mic, transcribes via Whisper, enhances notes with AI templates.",
   "main": "out/main/index.js",
   "type": "module",
   "author": "maewa-space",
   "license": "MIT",
-  "homepage": "https://github.com/maewa-space/cairn",
+  "homepage": "https://github.com/maewa-space/quill",
   "repository": {
     "type": "git",
-    "url": "https://github.com/maewa-space/cairn.git"
+    "url": "https://github.com/maewa-space/quill.git"
   },
   "scripts": {
     "dev": "electron-vite dev",

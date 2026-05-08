@@ -10,8 +10,8 @@ export function SettingsRoute() {
   const [savingAnthropic, setSavingAnthropic] = useState(false);
 
   const refresh = async () => {
-    setOpenaiSet(await window.cairn.keys.has('openai'));
-    setAnthropicSet(await window.cairn.keys.has('anthropic'));
+    setOpenaiSet(await window.quill.keys.has('openai'));
+    setAnthropicSet(await window.quill.keys.has('anthropic'));
   };
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function SettingsRoute() {
     if (!value.trim()) return;
     setSaving(true);
     try {
-      await window.cairn.keys.set(name, value.trim());
+      await window.quill.keys.set(name, value.trim());
       clearInput();
       await refresh();
     } finally {
@@ -36,7 +36,7 @@ export function SettingsRoute() {
   };
 
   const removeKey = async (name: 'openai' | 'anthropic') => {
-    await window.cairn.keys.delete(name);
+    await window.quill.keys.delete(name);
     await refresh();
   };
 
@@ -89,7 +89,7 @@ export function SettingsRoute() {
             About
           </h2>
           <p>
-            Cairn captures your microphone via <code>getUserMedia</code> and your computer's
+            Quill captures your microphone via <code>getUserMedia</code> and your computer's
             audio output via <code>getDisplayMedia</code> with system audio. macOS will ask
             for Microphone and Screen Recording permissions the first time you record.
             Audio is sent to OpenAI Whisper in 20-second chunks and discarded after each

@@ -10,9 +10,9 @@ let db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (db) return db;
-  const dir = join(app.getPath('userData'), 'cairn');
+  const dir = join(app.getPath('userData'), 'quill');
   mkdirSync(dir, { recursive: true });
-  db = new Database(join(dir, 'cairn.db'));
+  db = new Database(join(dir, 'quill.db'));
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   migrate(db);

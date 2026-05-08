@@ -1,6 +1,6 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Plus, Mountain, Settings, FileText, Search } from 'lucide-react';
+import { Plus, Feather, Settings, FileText, Search } from 'lucide-react';
 import type { Meeting } from '@shared/types.js';
 import { formatRelative } from '../lib/date';
 
@@ -12,8 +12,8 @@ export function Sidebar() {
 
   const refresh = async () => {
     const list = query.trim()
-      ? await window.cairn.meetings.search(query.trim())
-      : await window.cairn.meetings.list();
+      ? await window.quill.meetings.search(query.trim())
+      : await window.quill.meetings.list();
     setMeetings(list);
   };
 
@@ -25,7 +25,7 @@ export function Sidebar() {
   }, [query, location.pathname]);
 
   const newMeeting = async () => {
-    const m = await window.cairn.meetings.create('Untitled meeting');
+    const m = await window.quill.meetings.create('Untitled meeting');
     nav(`/meeting/${m.id}`);
   };
 
@@ -33,8 +33,8 @@ export function Sidebar() {
     <aside className="surface-2 flex flex-col border-r hairline">
       <div className="titlebar-drag h-9" />
       <div className="flex items-center gap-2 px-4 pt-1 pb-3">
-        <Mountain size={18} className="text-moss" strokeWidth={1.6} />
-        <span className="font-serif text-lg tracking-tight">Cairn</span>
+        <Feather size={17} className="text-moss" strokeWidth={1.6} />
+        <span className="font-serif text-lg tracking-tight">Quill</span>
       </div>
 
       <button

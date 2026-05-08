@@ -7,7 +7,7 @@ export function TemplatesRoute() {
   const [active, setActive] = useState<Template | null>(null);
 
   useEffect(() => {
-    window.cairn.templates.list().then((list) => {
+    window.quill.templates.list().then((list) => {
       setTemplates(list);
       setActive(list[0] ?? null);
     });

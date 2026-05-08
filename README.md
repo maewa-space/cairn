@@ -1,10 +1,10 @@
-# Cairn
+# Quill
 
 > Open-source meeting notetaker. Captures system audio + mic, transcribes via Whisper, enhances rough notes into polished writeups using AI templates.
 
 Inspired by [Granola](https://www.granola.ai/), not affiliated.
 
-A *cairn* is a stack of stones that marks a path. Each meeting becomes a stone in your work-cairn.
+A *quill* is a writing tool, tuned for thinking. You scratch rough notes during the meeting; Quill turns them into something you'd actually share.
 
 ![Home](docs/screenshots/01-home.png)
 ![Meeting view](docs/screenshots/02-meeting.png)
@@ -13,10 +13,10 @@ A *cairn* is a stack of stones that marks a path. Each meeting becomes a stone i
 
 ## What it does
 
-1. **Open Cairn before a meeting** — like Apple Notes.
-2. **Hit record.** Cairn captures system audio (the other people) and your mic in two tagged streams. No bots join your call.
+1. **Open Quill before a meeting** — like Apple Notes.
+2. **Hit record.** Quill captures system audio (the other people) and your mic in two tagged streams. No bots join your call.
 3. **Take rough notes** while the live transcript fills the right pane.
-4. **End the meeting.** Cairn merges your raw notes + transcript using a chosen template (Customer Discovery 101, User Interview, Pitch, Stand-up, 1-on-1, …) and produces a polished writeup.
+4. **End the meeting.** Quill merges your raw notes + transcript using a chosen template (Customer Discovery 101, User Interview, Pitch, Stand-up, 1-on-1, …) and produces a polished writeup.
 5. **Audio is never stored** — only the transcript and the final notes.
 
 ## Stack
@@ -64,5 +64,5 @@ MIT — see [LICENSE](LICENSE).
 ## Acknowledgments
 
 - [Granola](https://www.granola.ai/) for showing the world this product category should exist.
-- [WAVE](https://github.com/maewa-space/) — internal dictation app whose Whisper + Keychain patterns informed Cairn.
+- [WAVE](https://github.com/maewa-space/) — internal dictation app whose Whisper + Keychain patterns informed Quill.
 - [Whisper](https://platform.openai.com/docs/guides/speech-to-text) and [Claude](https://www.anthropic.com/claude) — the AI horsepower.

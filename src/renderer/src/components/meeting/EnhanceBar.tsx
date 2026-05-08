@@ -15,7 +15,7 @@ export function EnhanceBar(props: EnhanceBarProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    window.cairn.templates.list().then((list) => {
+    window.quill.templates.list().then((list) => {
       setTemplates(list);
       if (!props.selectedTemplateId && list[0]) {
         props.onSelect(list[0].id);

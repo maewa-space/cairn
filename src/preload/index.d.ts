@@ -1,8 +1,8 @@
-import type { CairnAPI } from './index.js';
+import type { QuillAPI } from './index.js';
 
 declare global {
   interface Window {
-    cairn: CairnAPI;
+    quill: QuillAPI;
   }
 }
 

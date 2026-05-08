@@ -12,3 +12,5 @@ coverage
 playwright-report
 test-results
 .turbo
+tests/e2e/_live*
+/tmp/quill-live-*

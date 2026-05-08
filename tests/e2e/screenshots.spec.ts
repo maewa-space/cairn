@@ -10,7 +10,7 @@ test.describe.configure({ mode: 'serial' });
 let userDataDir: string;
 
 test.beforeAll(() => {
-  userDataDir = mkdtempSync(join(tmpdir(), 'cairn-shots-'));
+  userDataDir = mkdtempSync(join(tmpdir(), 'quill-shots-'));
   mkdirSync(SHOTS, { recursive: true });
 });
 
@@ -28,31 +28,31 @@ test('captures home, meeting, settings, templates', async () => {
 
   // Seed a few meetings so the home and sidebar look populated
   await win.evaluate(async () => {
-    const a = await window.cairn.meetings.create('Q3 customer discovery — Mira');
-    const b = await window.cairn.meetings.create('Pitch dry run with Sam');
-    const c = await window.cairn.meetings.create('Wednesday stand-up');
-    await window.cairn.transcript.append({
+    const a = await window.quill.meetings.create('Q3 customer discovery — Mira');
+    const b = await window.quill.meetings.create('Pitch dry run with Sam');
+    const c = await window.quill.meetings.create('Wednesday stand-up');
+    await window.quill.transcript.append({
       meetingId: a.id,
       speaker: 'system',
       text: "We've been duct-taping Notion and Granola together for months.",
       startedAtMs: 0,
       durationMs: 4200,
     });
-    await window.cairn.transcript.append({
+    await window.quill.transcript.append({
       meetingId: a.id,
       speaker: 'mic',
       text: 'And what specifically breaks when you try to share with the team?',
       startedAtMs: 4500,
       durationMs: 3300,
     });
-    await window.cairn.transcript.append({
+    await window.quill.transcript.append({
       meetingId: a.id,
       speaker: 'system',
       text: "Search. Search is the worst part — I can't find anything from last quarter.",
       startedAtMs: 8000,
       durationMs: 5100,
     });
-    await window.cairn.meetings.saveNotes(
+    await window.quill.meetings.saveNotes(
       a.id,
       '<h2>Pre-call hypothesis</h2><p>Mira will care about search and shareability.</p><h2>What I want to learn</h2><ul><li>Where the current tool actually breaks</li><li>What "good" looks like</li><li>Willingness to switch</li></ul>',
     );
@@ -66,7 +66,7 @@ test('captures home, meeting, settings, templates', async () => {
 
   // 2) Meeting
   const id = await win.evaluate(async () => {
-    const list = await window.cairn.meetings.list();
+    const list = await window.quill.meetings.list();
     const target = list.find((m) => m.title.includes('customer discovery')) ?? list[0];
     window.location.hash = `#/meeting/${target.id}`;
     return target.id;

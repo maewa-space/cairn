@@ -1,5 +1,5 @@
-appId: space.maewa.cairn
-productName: Cairn
+appId: space.maewa.quill
+productName: Quill
 directories:
   output: release
   buildResources: build
@@ -16,10 +16,10 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   extendInfo:
-    NSMicrophoneUsageDescription: "Cairn transcribes your microphone during meetings."
-    NSScreenCaptureUsageDescription: "Cairn uses screen capture to transcribe system audio during meetings."
-    NSAudioCaptureUsageDescription: "Cairn transcribes your computer's audio output during meetings."
-    NSCalendarsUsageDescription: "Cairn shows your upcoming meetings."
+    NSMicrophoneUsageDescription: "Quill transcribes your microphone during meetings."
+    NSScreenCaptureUsageDescription: "Quill uses screen capture to transcribe system audio during meetings."
+    NSAudioCaptureUsageDescription: "Quill transcribes your computer's audio output during meetings."
+    NSCalendarsUsageDescription: "Quill shows your upcoming meetings."
 dmg:
   contents:
     - x: 130

@@ -7,7 +7,7 @@ import type {
   EnhanceResult,
 } from '../shared/types.js';
 
-export const cairnAPI = {
+export const quillAPI = {
   meetings: {
     list: (): Promise<Meeting[]> => ipcRenderer.invoke('meetings:list'),
     get: (id: string): Promise<Meeting | null> =>
@@ -64,6 +64,6 @@ export const cairnAPI = {
   },
 };
 
-contextBridge.exposeInMainWorld('cairn', cairnAPI);
+contextBridge.exposeInMainWorld('quill', quillAPI);
 
-export type CairnAPI = typeof cairnAPI;
+export type QuillAPI = typeof quillAPI;

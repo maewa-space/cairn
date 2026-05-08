@@ -11,7 +11,7 @@ export function HomeRoute() {
 
   useEffect(() => {
     let alive = true;
-    window.cairn.meetings.list().then((list) => {
+    window.quill.meetings.list().then((list) => {
       if (alive) setMeetings(list);
     });
     return () => {
@@ -20,7 +20,7 @@ export function HomeRoute() {
   }, [location.pathname, location.key]);
 
   const start = async () => {
-    const m = await window.cairn.meetings.create('Untitled meeting');
+    const m = await window.quill.meetings.create('Untitled meeting');
     nav(`/meeting/${m.id}`);
   };
 
@@ -29,17 +29,17 @@ export function HomeRoute() {
       <div className="mx-auto max-w-3xl px-10 py-8">
         <header className="mb-10">
           <div className="text-xs uppercase tracking-[0.18em] text-ink-soft mb-2">
-            Cairn — open notebook
+            Quill — open notebook
           </div>
           <h1
             className="font-serif text-[clamp(2.25rem,1.4rem+2.4vw,3.25rem)] leading-tight tracking-tight"
             style={{ letterSpacing: '-0.024em' }}
           >
-            Mark every meeting<br />
-            with a stone.
+            Note every meeting.<br />
+            Polish it later.
           </h1>
           <p className="mt-4 max-w-prose text-ink-muted leading-relaxed">
-            Cairn listens to your computer's audio and your microphone, transcribes the
+            Quill listens to your computer's audio and your microphone, transcribes the
             conversation, and turns your rough notes into a clean writeup using a
             template you choose.
           </p>
