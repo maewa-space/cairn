@@ -21,9 +21,9 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   extendInfo:
-    NSMicrophoneUsageDescription: "Quill transcribes your microphone during meetings."
-    NSScreenCaptureUsageDescription: "Quill uses screen capture to transcribe system audio during meetings."
-    NSAudioCaptureUsageDescription: "Quill transcribes your computer's audio output during meetings."
+    NSMicrophoneUsageDescription: "During your meetings, Quill transcribes your microphone."
+    NSScreenCaptureUsageDescription: "During your meetings, Quill uses screen capture to transcribe system audio. The screen video is discarded; only the audio track is used."
+    NSAudioCaptureUsageDescription: "During your meetings, Quill transcribes your computer's audio output."
     NSCalendarsUsageDescription: "Quill shows your upcoming meetings."
 dmg:
   icon: build/icon.icns

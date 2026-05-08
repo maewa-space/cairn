@@ -48,11 +48,14 @@ function createWindow(): void {
     },
   );
 
-  // Forward getDisplayMedia requests so renderer can pick a source.
+  // getDisplayMedia routing.
+  // On macOS 14.4+, useSystemPicker: true defers to the native ScreenCaptureKit
+  // picker, which exposes the "Include audio" toggle that actually taps system
+  // audio. The handler still serves as a fallback (Windows uses 'loopback';
+  // older macOS just gets video).
   if ('setDisplayMediaRequestHandler' in mainWindow.webContents.session) {
     session.defaultSession.setDisplayMediaRequestHandler(
       (_request, callback) => {
-        // Default to first screen with audio. Renderer can override later.
         import('electron').then(({ desktopCapturer }) => {
           desktopCapturer
             .getSources({ types: ['screen'] })
@@ -62,7 +65,7 @@ function createWindow(): void {
             .catch(() => callback({}));
         });
       },
-      { useSystemPicker: false },
+      { useSystemPicker: process.platform === 'darwin' },
     );
   }
 

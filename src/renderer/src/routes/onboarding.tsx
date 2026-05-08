@@ -114,7 +114,7 @@ export function OnboardingRoute() {
               <PermCard
                 icon={<Monitor size={14} />}
                 title="Screen Recording"
-                body="macOS routes system audio through ScreenCaptureKit, which lives behind the Screen Recording permission. Quill never touches the video — only the audio track."
+                body="macOS only exposes system audio through Apple's ScreenCaptureKit, which lives behind the Screen Recording permission. There is no audio-only path — Granola, Jamie, and every other notetaker on macOS do the same. Quill stops the video track immediately and uses only the audio."
               />
             </div>
 

@@ -15,43 +15,39 @@ const root = join(here, '..');
 const buildDir = join(root, 'build');
 const iconsetDir = join(buildDir, 'icon.iconset');
 
-const PAPER = '#f4ebd6';
-const PAPER_LIGHT = '#fbf3e1';
-const INK = '#2f5b2a';
-const INK_LIGHT = '#5a8a4c';
-const NIB = '#1d3819';
+const PAPER = '#f1e7d2';
+const PAPER_LIGHT = '#fbf5e6';
+const PAPER_EDGE = '#e3d4ae';
+const INK = '#1d2a17';
+const INK_DOT = '#2f5b2a';
 
-// 24x24 viewBox so the lucide-style paths align cleanly.
-// We layer: warm paper rounded-rect background → filled feather body
-// → outlined feather strokes → small ink-drop accent in lower-right.
-const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+// Typographic logo: italic serif "Q" on warm paper. The Q monogram ties the
+// mark directly to the product name and reads cleanly at 16px. Newsreader is
+// loaded from Google Fonts in the rendering HTML; Georgia is the fallback.
+const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="paper" x1="0.2" y1="0" x2="0.8" y2="1">
       <stop offset="0%" stop-color="${PAPER_LIGHT}"/>
       <stop offset="100%" stop-color="${PAPER}"/>
     </linearGradient>
-    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${INK_LIGHT}"/>
-      <stop offset="100%" stop-color="${INK}"/>
-    </linearGradient>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="65%">
+      <stop offset="60%" stop-color="${PAPER_LIGHT}" stop-opacity="0"/>
+      <stop offset="100%" stop-color="${PAPER_EDGE}" stop-opacity="0.5"/>
+    </radialGradient>
   </defs>
 
-  <rect x="0" y="0" width="24" height="24" rx="5.2" fill="url(#paper)"/>
+  <rect width="1024" height="1024" rx="220" fill="url(#paper)"/>
+  <rect width="1024" height="1024" rx="220" fill="url(#vignette)"/>
 
-  <g transform="translate(0.4 0.2)">
-    <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"
-          fill="url(#ink)" fill-opacity="0.92"
-          stroke="${NIB}" stroke-width="0.55"
-          stroke-linejoin="round"/>
-    <path d="M16 8 2 22"
-          stroke="${NIB}" stroke-width="0.85"
-          stroke-linecap="round" fill="none"/>
-    <path d="M17.5 15H9"
-          stroke="${PAPER_LIGHT}" stroke-width="0.55"
-          stroke-linecap="round" fill="none" opacity="0.85"/>
+  <g>
+    <text x="512" y="760"
+          font-family="Newsreader, 'Source Serif Pro', Georgia, 'Times New Roman', serif"
+          font-style="italic" font-weight="500"
+          font-size="820" letter-spacing="-12"
+          text-anchor="middle" fill="${INK}">Q</text>
   </g>
 
-  <circle cx="20.4" cy="20.4" r="0.85" fill="${INK}" opacity="0.9"/>
+  <circle cx="850" cy="860" r="28" fill="${INK_DOT}" opacity="0.85"/>
 </svg>`;
 
 const sizes = [
@@ -77,10 +73,15 @@ async function main() {
   const browser = await chromium.launch();
   try {
     for (const { name, size } of sizes) {
-      const html = `<!doctype html><html><head><meta charset="utf-8"/><style>
-        html,body{margin:0;padding:0;background:transparent;}
-        svg{display:block;}
-      </style></head><body>${SVG.replace(
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+        <link rel="preconnect" href="https://fonts.googleapis.com"/>
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+        <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@1,500&display=block" rel="stylesheet"/>
+        <style>
+          html,body{margin:0;padding:0;background:transparent;}
+          svg{display:block;}
+        </style>
+      </head><body>${SVG.replace(
         '<svg xmlns="http://www.w3.org/2000/svg"',
         `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"`,
       )}</body></html>`;
@@ -90,6 +91,14 @@ async function main() {
         deviceScaleFactor: 1,
       });
       await page.setContent(html);
+      // Wait for the web font to load so the Q renders in Newsreader, not the fallback.
+      await page
+        .evaluate(async () => {
+          if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+          }
+        })
+        .catch(() => undefined);
       const buf = await page.locator('svg').screenshot({
         omitBackground: true,
         type: 'png',
