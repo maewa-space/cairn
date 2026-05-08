@@ -3,7 +3,7 @@ import { settingsRepo } from './db.js';
 
 const KEY_PREFIX = 'apikey:';
 
-export type KeyName = 'openai' | 'anthropic';
+export type KeyName = 'openai' | 'anthropic' | 'openrouter';
 
 export function setKey(name: KeyName, value: string): void {
   if (!safeStorage.isEncryptionAvailable()) {

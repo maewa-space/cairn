@@ -40,11 +40,13 @@ export const quillAPI = {
       ipcRenderer.invoke('templates:delete', id),
   },
   keys: {
-    has: (name: 'openai' | 'anthropic'): Promise<boolean> =>
+    has: (name: 'openai' | 'anthropic' | 'openrouter'): Promise<boolean> =>
       ipcRenderer.invoke('keys:has', name),
-    set: (name: 'openai' | 'anthropic', value: string): Promise<void> =>
-      ipcRenderer.invoke('keys:set', name, value),
-    delete: (name: 'openai' | 'anthropic'): Promise<void> =>
+    set: (
+      name: 'openai' | 'anthropic' | 'openrouter',
+      value: string,
+    ): Promise<void> => ipcRenderer.invoke('keys:set', name, value),
+    delete: (name: 'openai' | 'anthropic' | 'openrouter'): Promise<void> =>
       ipcRenderer.invoke('keys:delete', name),
   },
   whisper: {
@@ -61,6 +63,15 @@ export const quillAPI = {
       templateId: string;
       rawNotes: string;
     }): Promise<EnhanceResult> => ipcRenderer.invoke('enhance:run', args),
+  },
+  dialog: {
+    saveMarkdown: (args: {
+      suggestedName: string;
+      content: string;
+    }): Promise<string | null> =>
+      ipcRenderer.invoke('dialog:saveMarkdown', args),
+    revealInFinder: (path: string): Promise<void> =>
+      ipcRenderer.invoke('dialog:revealInFinder', path),
   },
 };
 

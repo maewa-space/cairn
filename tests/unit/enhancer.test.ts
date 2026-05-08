@@ -127,4 +127,59 @@ describe('enhancer.enhance', () => {
       }),
     ).rejects.toBeInstanceOf(EnhancerError);
   });
+
+  it('routes to OpenRouter when only that key is set', async () => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toContain('openrouter.ai');
+      const body = JSON.parse(init?.body as string);
+      expect(body.model).toMatch(/claude-haiku/);
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.Authorization).toBe('Bearer sk-or-test');
+      expect(headers['HTTP-Referer']).toContain('quill');
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'cheap enhanced' } }],
+          usage: { prompt_tokens: 50, completion_tokens: 10 },
+        }),
+        { status: 200 },
+      );
+    });
+    const result = await enhance({
+      rawNotes: 'x',
+      transcript,
+      template,
+      anthropicKey: null,
+      openaiKey: null,
+      openrouterKey: 'sk-or-test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.markdown).toBe('cheap enhanced');
+    expect(result.modelUsed).toMatch(/^openrouter:/);
+    expect(result.inputTokens).toBe(50);
+  });
+
+  it('honors preferred=openrouter even when other keys exist', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(url).toContain('openrouter.ai');
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'preferred path' } }],
+          usage: { prompt_tokens: 12, completion_tokens: 4 },
+        }),
+        { status: 200 },
+      );
+    });
+    const result = await enhance({
+      rawNotes: 'x',
+      transcript,
+      template,
+      anthropicKey: 'sk-ant',
+      openaiKey: 'sk-openai',
+      openrouterKey: 'sk-or-test',
+      preferred: 'openrouter',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.modelUsed).toMatch(/^openrouter:/);
+    expect(result.markdown).toBe('preferred path');
+  });
 });

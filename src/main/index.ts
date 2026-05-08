@@ -82,7 +82,7 @@ app.whenReady().then(() => {
   try {
     const templates = loadBuiltInTemplates(
       app.isPackaged
-        ? join(process.resourcesPath, 'app.asar.unpacked/src/shared/templates')
+        ? join(process.resourcesPath, 'templates')
         : join(__dirname, '../../src/shared/templates'),
     );
     seedTemplates(templates);

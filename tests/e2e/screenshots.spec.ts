@@ -26,6 +26,11 @@ test('captures home, meeting, settings, templates', async () => {
   await win.waitForLoadState('domcontentloaded');
   await win.setViewportSize({ width: 1280, height: 820 });
 
+  // Bypass onboarding by seeding a key and going to /home
+  await win.evaluate(async () => {
+    await window.quill.keys.set('openai', 'sk-test-bootstrap');
+  });
+
   // Seed a few meetings so the home and sidebar look populated
   await win.evaluate(async () => {
     const a = await window.quill.meetings.create('Q3 customer discovery — Mira');

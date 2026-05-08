@@ -1,4 +1,5 @@
-import { ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { writeFile } from 'node:fs/promises';
 import {
   meetingsRepo,
   transcriptRepo,
@@ -7,7 +8,7 @@ import {
 import { getKey, hasKey, setKey, deleteKey, type KeyName } from '../services/keychain.js';
 import { transcribe, type WhisperModel } from '../services/whisper.js';
 import { enhance } from '../services/enhancer.js';
-import type { TranscriptEntry } from '@shared/types.js';
+import type { Template, TranscriptEntry } from '@shared/types.js';
 
 export function registerIpcHandlers(): void {
   // Meetings
@@ -72,6 +73,26 @@ export function registerIpcHandlers(): void {
     },
   );
 
+  // Export markdown to file
+  ipcMain.handle(
+    'dialog:saveMarkdown',
+    async (event, args: { suggestedName: string; content: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      const safeName = args.suggestedName.replace(/[^A-Za-z0-9._ -]/g, '_').trim() || 'meeting';
+      const result = await dialog.showSaveDialog(win!, {
+        title: 'Export meeting notes',
+        defaultPath: `${safeName}.md`,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+      if (result.canceled || !result.filePath) return null;
+      await writeFile(result.filePath, args.content, 'utf-8');
+      return result.filePath;
+    },
+  );
+  ipcMain.handle('dialog:revealInFinder', async (_e, path: string) => {
+    shell.showItemInFolder(path);
+  });
+
   // Enhancement
   ipcMain.handle(
     'enhance:run',
@@ -89,6 +110,7 @@ export function registerIpcHandlers(): void {
         template,
         anthropicKey: getKey('anthropic'),
         openaiKey: getKey('openai'),
+        openrouterKey: getKey('openrouter'),
       });
       meetingsRepo.setEnhanced(args.meetingId, result.markdown, args.templateId);
       return result;

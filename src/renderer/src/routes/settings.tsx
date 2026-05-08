@@ -4,14 +4,18 @@ import { Check, KeyRound, Trash2 } from 'lucide-react';
 export function SettingsRoute() {
   const [openaiSet, setOpenaiSet] = useState(false);
   const [anthropicSet, setAnthropicSet] = useState(false);
+  const [openrouterSet, setOpenrouterSet] = useState(false);
   const [openaiInput, setOpenaiInput] = useState('');
   const [anthropicInput, setAnthropicInput] = useState('');
+  const [openrouterInput, setOpenrouterInput] = useState('');
   const [savingOpenai, setSavingOpenai] = useState(false);
   const [savingAnthropic, setSavingAnthropic] = useState(false);
+  const [savingOpenrouter, setSavingOpenrouter] = useState(false);
 
   const refresh = async () => {
     setOpenaiSet(await window.quill.keys.has('openai'));
     setAnthropicSet(await window.quill.keys.has('anthropic'));
+    setOpenrouterSet(await window.quill.keys.has('openrouter'));
   };
 
   useEffect(() => {
@@ -19,7 +23,7 @@ export function SettingsRoute() {
   }, []);
 
   const saveKey = async (
-    name: 'openai' | 'anthropic',
+    name: 'openai' | 'anthropic' | 'openrouter',
     value: string,
     setSaving: (v: boolean) => void,
     clearInput: () => void,
@@ -35,7 +39,7 @@ export function SettingsRoute() {
     }
   };
 
-  const removeKey = async (name: 'openai' | 'anthropic') => {
+  const removeKey = async (name: 'openai' | 'anthropic' | 'openrouter') => {
     await window.quill.keys.delete(name);
     await refresh();
   };
@@ -81,6 +85,24 @@ export function SettingsRoute() {
               )
             }
             onRemove={() => removeKey('anthropic')}
+          />
+          <KeyCard
+            title="OpenRouter"
+            description="Cheap fallback for enhancement — runs Claude Haiku via OpenRouter when neither key above is set."
+            placeholder="sk-or-..."
+            isSet={openrouterSet}
+            value={openrouterInput}
+            setValue={setOpenrouterInput}
+            saving={savingOpenrouter}
+            onSave={() =>
+              saveKey(
+                'openrouter',
+                openrouterInput,
+                setSavingOpenrouter,
+                () => setOpenrouterInput(''),
+              )
+            }
+            onRemove={() => removeKey('openrouter')}
           />
         </section>
 

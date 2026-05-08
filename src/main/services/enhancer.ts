@@ -6,6 +6,7 @@ import type { Template } from '@shared/types.js';
 
 const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 
 export interface EnhanceOptions {
   rawNotes: string;
@@ -13,6 +14,8 @@ export interface EnhanceOptions {
   template: Template;
   anthropicKey?: string | null;
   openaiKey?: string | null;
+  openrouterKey?: string | null;
+  preferred?: 'anthropic' | 'openai' | 'openrouter';
   fetchImpl?: typeof fetch;
 }
 
@@ -74,15 +77,35 @@ export async function enhance(opts: EnhanceOptions): Promise<EnhanceResult> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const prompt = buildPrompt(opts);
 
-  if (opts.anthropicKey) {
-    return callAnthropic(prompt, opts.anthropicKey, fetchImpl);
-  }
-  if (opts.openaiKey) {
-    return callOpenAI(prompt, opts.openaiKey, fetchImpl);
+  // Build provider order: explicit preference first, then defaults
+  // (anthropic → openai → openrouter for the most-capable-first ordering).
+  const order = pickProviderOrder(opts);
+  for (const provider of order) {
+    if (provider === 'anthropic' && opts.anthropicKey) {
+      return callAnthropic(prompt, opts.anthropicKey, fetchImpl);
+    }
+    if (provider === 'openai' && opts.openaiKey) {
+      return callOpenAI(prompt, opts.openaiKey, fetchImpl);
+    }
+    if (provider === 'openrouter' && opts.openrouterKey) {
+      return callOpenRouter(prompt, opts.openrouterKey, fetchImpl);
+    }
   }
   throw new EnhancerError(
-    'No enhancement key configured. Set Anthropic or OpenAI key in Settings.',
+    'No enhancement key configured. Set Anthropic, OpenAI, or OpenRouter key in Settings.',
   );
+}
+
+function pickProviderOrder(
+  opts: EnhanceOptions,
+): Array<'anthropic' | 'openai' | 'openrouter'> {
+  const defaults: Array<'anthropic' | 'openai' | 'openrouter'> = [
+    'anthropic',
+    'openai',
+    'openrouter',
+  ];
+  if (!opts.preferred) return defaults;
+  return [opts.preferred, ...defaults.filter((p) => p !== opts.preferred)];
 }
 
 async function callAnthropic(
@@ -126,6 +149,47 @@ async function callAnthropic(
     modelUsed: model,
     inputTokens: data.usage.input_tokens,
     outputTokens: data.usage.output_tokens,
+  };
+}
+
+async function callOpenRouter(
+  prompt: { system: string; user: string },
+  apiKey: string,
+  fetchImpl: typeof fetch,
+): Promise<EnhanceResult> {
+  // Default to a cheap-but-strong model on OpenRouter; users can change via env later.
+  const model = 'anthropic/claude-haiku-4.5';
+  const body = {
+    model,
+    temperature: 0.2,
+    messages: [
+      { role: 'system', content: prompt.system },
+      { role: 'user', content: prompt.user },
+    ],
+  };
+  const res = await fetchImpl(OPENROUTER_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://github.com/maewa-space/quill',
+      'X-Title': 'Quill',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new EnhancerError(`OpenRouter API ${res.status}: ${errText}`);
+  }
+  const data = (await res.json()) as {
+    choices: { message: { content: string } }[];
+    usage: { prompt_tokens: number; completion_tokens: number };
+  };
+  return {
+    markdown: (data.choices[0]?.message.content ?? '').trim(),
+    modelUsed: `openrouter:${model}`,
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
   };
 }
 

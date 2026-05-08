@@ -1,7 +1,8 @@
-import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { launchAndBypassOnboarding } from './_helpers';
 
 let userDataDir: string;
 
@@ -14,11 +15,10 @@ test.afterAll(() => {
 });
 
 test('transcript entries appended via IPC render with correct speaker styling', async () => {
-  const electronApp = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-  });
-  const win = await electronApp.firstWindow();
-  await win.waitForLoadState('domcontentloaded');
+  const { app: electronApp, win } = await launchAndBypassOnboarding([
+    '.',
+    `--user-data-dir=${userDataDir}`,
+  ]);
 
   // Create a meeting via the API and navigate to it
   const meetingId = await win.evaluate(async () => {
@@ -65,18 +65,28 @@ test('transcript entries appended via IPC render with correct speaker styling', 
 });
 
 test('settings stores keys via safeStorage and reports them as set', async () => {
+  // Don't pre-seed — exercise the real onboarding-skip path so the OpenAI
+  // section starts empty and the Save button is enabled.
+  const { _electron: electron } = await import('@playwright/test');
   const electronApp = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
+    args: ['.', `--user-data-dir=${userDataDir}-fresh`],
   });
   const win = await electronApp.firstWindow();
   await win.waitForLoadState('domcontentloaded');
 
-  await win.getByRole('link', { name: /Settings/i }).click();
-  await win.getByTestId('key-input-openai').fill('sk-test-openai-12345');
-  await win.getByRole('button', { name: /^Save$/ }).first().click();
-  await expect(win.getByText('stored').first()).toBeVisible();
+  // Click through to "Skip for now" in onboarding to land on /home
+  await expect(win.getByTestId('onboarding-intro')).toBeVisible();
+  await win.getByTestId('onboarding-next-permissions').click();
+  await win.getByTestId('onboarding-next-keys').click();
+  await win.getByTestId('onboarding-skip').click();
 
-  // Confirm via IPC
+  await win.getByRole('link', { name: /Settings/i }).click();
+  // OpenAI card scope so we click the right Save button
+  const openaiCard = win.locator('div.card', { has: win.getByTestId('key-input-openai') });
+  await openaiCard.getByTestId('key-input-openai').fill('sk-test-openai-12345');
+  await openaiCard.getByRole('button', { name: /^Save$/ }).click();
+  await expect(openaiCard.getByText('stored')).toBeVisible();
+
   const has = await win.evaluate(() => window.quill.keys.has('openai'));
   expect(has).toBe(true);
 

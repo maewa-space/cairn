@@ -26,7 +26,7 @@ A *quill* is a writing tool, tuned for thinking. You scratch rough notes during 
 - **Tiptap** for the Apple-Notes-like editor
 - **better-sqlite3** for local-first storage
 - **OpenAI Whisper API** for transcription (chunked 20 s uploads)
-- **Anthropic Claude Sonnet** for note enhancement (with prompt caching on the template prefix)
+- **Anthropic Claude Sonnet** for note enhancement (with prompt caching on the template prefix), with **OpenAI GPT-4o** and **OpenRouter Claude Haiku** as fallbacks
 - **Electron `safeStorage`** (Keychain on macOS) for API keys
 - **Vitest** + **Playwright + Electron** for tests
 
@@ -34,13 +34,17 @@ A *quill* is a writing tool, tuned for thinking. You scratch rough notes during 
 
 Pre-alpha. Built autonomously. See [build plan](#) for roadmap.
 
+## Install (DMG)
+
+`pnpm package` produces `release/Quill-0.1.0-arm64.dmg` (unsigned). Open the DMG, drag Quill into Applications, and right-click → Open the first time so macOS lets an unsigned build through.
+
 ## Develop
 
 ```bash
 pnpm install
 pnpm dev          # launches Electron + Vite dev server
-pnpm test         # vitest unit tests
-pnpm test:e2e     # playwright + electron e2e
+pnpm test         # vitest unit tests (28 tests covering Whisper multipart, enhancer prompt + provider routing, template parser, html→md, markdown renderer)
+pnpm test:e2e     # playwright + electron e2e (6 mocked + 1 live, live skips without OPENAI_API_KEY)
 pnpm typecheck
 pnpm package      # mac DMG (unsigned)
 ```

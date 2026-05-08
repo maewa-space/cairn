@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import type { Meeting, TranscriptEntry } from '@shared/types.js';
 import { NotesEditor } from '../components/meeting/NotesEditor';
 import { TranscriptStream } from '../components/meeting/TranscriptStream';
 import { RecordControls } from '../components/meeting/RecordControls';
 import { EnhanceBar } from '../components/meeting/EnhanceBar';
 import { EnhancedView } from '../components/meeting/EnhancedView';
+import { MeetingActions } from '../components/meeting/MeetingActions';
 import { useAudioCapture } from '../hooks/useAudioCapture';
 import { useChunkedTranscriber } from '../hooks/useChunkedTranscriber';
 import { formatTime } from '../lib/date';
@@ -14,6 +15,7 @@ const NOTES_DEBOUNCE_MS = 600;
 
 export function MeetingRoute() {
   const { id = '' } = useParams<{ id: string }>();
+  const nav = useNavigate();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [notes, setNotes] = useState('');
@@ -97,6 +99,13 @@ export function MeetingRoute() {
     if (id) await window.quill.meetings.end(id);
   }, [capture, id]);
 
+  const deleteMeeting = useCallback(async () => {
+    if (!id) return;
+    if (capture.state === 'recording') await capture.stop();
+    await window.quill.meetings.delete(id);
+    nav('/home');
+  }, [id, capture, nav]);
+
   const runEnhance = useCallback(async () => {
     if (!templateId || !id) return;
     setEnhancing(true);
@@ -172,6 +181,12 @@ export function MeetingRoute() {
           selectedTemplateId={templateId}
           onSelect={setTemplateId}
           onRun={runEnhance}
+        />
+        <MeetingActions
+          meetingTitle={titleDraft || 'Untitled meeting'}
+          rawNotesHtml={notes}
+          enhancedMarkdown={enhanced}
+          onDelete={deleteMeeting}
         />
       </div>
 

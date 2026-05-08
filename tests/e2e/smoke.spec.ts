@@ -1,7 +1,8 @@
-import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { launchAndBypassOnboarding } from './_helpers';
 
 let userDataDir: string;
 
@@ -14,45 +15,36 @@ test.afterAll(() => {
 });
 
 test('home renders with quill branding and start CTA', async () => {
-  const electronApp = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-    env: {
-      ...process.env,
-      NODE_ENV: 'test',
-    },
-  });
-  const window = await electronApp.firstWindow();
-  await window.waitForLoadState('domcontentloaded');
+  const { app, win } = await launchAndBypassOnboarding([
+    '.',
+    `--user-data-dir=${userDataDir}`,
+  ]);
 
-  await expect(window.getByText('Quill').first()).toBeVisible();
-  await expect(
-    window.getByTestId('start-new-meeting'),
-  ).toBeVisible();
+  await expect(win.getByText('Quill').first()).toBeVisible();
+  await expect(win.getByTestId('start-new-meeting')).toBeVisible();
 
-  await electronApp.close();
+  await app.close();
 });
 
 test('starts a new meeting and opens meeting view', async () => {
-  const electronApp = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-  });
-  const window = await electronApp.firstWindow();
-  await window.waitForLoadState('domcontentloaded');
+  const { app, win } = await launchAndBypassOnboarding([
+    '.',
+    `--user-data-dir=${userDataDir}`,
+  ]);
 
-  await window.getByTestId('start-new-meeting').click();
-  await expect(window.getByTestId('meeting-title')).toBeVisible();
-  await expect(window.getByTestId('record-start')).toBeVisible();
-  await expect(window.getByTestId('transcript-stream')).toBeVisible();
+  await win.getByTestId('start-new-meeting').click();
+  await expect(win.getByTestId('meeting-title')).toBeVisible();
+  await expect(win.getByTestId('record-start')).toBeVisible();
+  await expect(win.getByTestId('transcript-stream')).toBeVisible();
 
-  await electronApp.close();
+  await app.close();
 });
 
 test('templates route lists 6 built-in templates', async () => {
-  const electronApp = await electron.launch({
-    args: ['.', `--user-data-dir=${userDataDir}`],
-  });
-  const window = await electronApp.firstWindow();
-  await window.waitForLoadState('domcontentloaded');
+  const { app, win: window } = await launchAndBypassOnboarding([
+    '.',
+    `--user-data-dir=${userDataDir}`,
+  ]);
 
   await window.getByRole('link', { name: /Templates/i }).click();
   await expect(window.getByRole('button', { name: /Customer Discovery 101/ })).toBeVisible();
@@ -67,5 +59,5 @@ test('templates route lists 6 built-in templates', async () => {
     window.locator('h1').filter({ hasText: /Customer Discovery 101/ }),
   ).toBeVisible();
 
-  await electronApp.close();
+  await app.close();
 });

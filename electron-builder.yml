@@ -6,12 +6,16 @@ directories:
 files:
   - "out/**/*"
   - "package.json"
+extraResources:
+  - from: "src/shared/templates"
+    to: "templates"
+    filter:
+      - "*.md"
 asar: true
 mac:
   category: public.app-category.productivity
   target:
     - dmg
-  icon: build/icon.icns
   identity: null
   hardenedRuntime: true
   gatekeeperAssess: false
