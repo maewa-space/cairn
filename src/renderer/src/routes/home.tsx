@@ -1,16 +1,23 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Sparkles } from 'lucide-react';
 import type { Meeting } from '@shared/types.js';
 import { formatRelative } from '../lib/date';
 
 export function HomeRoute() {
   const nav = useNavigate();
+  const location = useLocation();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
 
   useEffect(() => {
-    window.cairn.meetings.list().then(setMeetings);
-  }, []);
+    let alive = true;
+    window.cairn.meetings.list().then((list) => {
+      if (alive) setMeetings(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [location.pathname, location.key]);
 
   const start = async () => {
     const m = await window.cairn.meetings.create('Untitled meeting');

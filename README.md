@@ -6,6 +6,11 @@ Inspired by [Granola](https://www.granola.ai/), not affiliated.
 
 A *cairn* is a stack of stones that marks a path. Each meeting becomes a stone in your work-cairn.
 
+![Home](docs/screenshots/01-home.png)
+![Meeting view](docs/screenshots/02-meeting.png)
+![Templates](docs/screenshots/03-templates.png)
+![Settings](docs/screenshots/04-settings.png)
+
 ## What it does
 
 1. **Open Cairn before a meeting** — like Apple Notes.

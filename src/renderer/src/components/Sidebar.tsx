@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Plus, Mountain, Settings, FileText, Search } from 'lucide-react';
 import type { Meeting } from '@shared/types.js';
@@ -6,6 +6,7 @@ import { formatRelative } from '../lib/date';
 
 export function Sidebar() {
   const nav = useNavigate();
+  const location = useLocation();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [query, setQuery] = useState('');
 
@@ -21,7 +22,7 @@ export function Sidebar() {
     const interval = setInterval(refresh, 4000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, location.pathname]);
 
   const newMeeting = async () => {
     const m = await window.cairn.meetings.create('Untitled meeting');
