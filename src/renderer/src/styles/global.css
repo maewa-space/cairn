@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply font-sans text-ink bg-surface antialiased;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+      Roboto, sans-serif;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    letter-spacing: -0.011em;
+  }
+  ::selection {
+    background: oklch(var(--accent) / 0.25);
+    color: oklch(var(--ink));
+  }
+  .titlebar-drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@layer components {
+  .surface {
+    background: oklch(var(--surface));
+    color: oklch(var(--ink));
+  }
+  .surface-2 {
+    background: oklch(var(--surface-2));
+  }
+  .surface-3 {
+    background: oklch(var(--surface-3));
+  }
+  .hairline {
+    border-color: oklch(var(--edge));
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5
+           text-sm font-medium transition-colors no-drag select-none
+           focus-visible:outline-none focus-visible:ring-2;
+    --tw-ring-color: oklch(var(--accent) / 0.4);
+  }
+  .btn-primary {
+    background: oklch(var(--ink));
+    color: oklch(var(--surface));
+  }
+  .btn-primary:hover {
+    background: oklch(var(--ink) / 0.88);
+  }
+  .btn-secondary {
+    background: oklch(var(--surface-3));
+    color: oklch(var(--ink));
+  }
+  .btn-secondary:hover {
+    background: oklch(var(--surface-3) / 0.7);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: oklch(var(--ink-muted));
+  }
+  .btn-ghost:hover {
+    background: oklch(var(--surface-2));
+    color: oklch(var(--ink));
+  }
+  .btn-record {
+    background: oklch(var(--accent));
+    color: oklch(99% 0 0);
+  }
+  .btn-record:hover {
+    background: oklch(var(--accent) / 0.9);
+  }
+
+  .card {
+    background: oklch(var(--surface));
+    border: 1px solid oklch(var(--edge));
+    border-radius: var(--radius-md);
+  }
+  .input {
+    @apply w-full rounded-md border bg-transparent px-3 py-2 text-sm
+           placeholder:text-ink-soft focus:outline-none focus:ring-2;
+    border-color: oklch(var(--edge));
+    color: oklch(var(--ink));
+    --tw-ring-color: oklch(var(--accent) / 0.35);
+  }
+
+  .editor-prose :is(h1) { font-family: 'Newsreader', Georgia, serif; font-weight: 500; letter-spacing: -0.025em; font-size: 1.625rem; margin-top: 1.5rem; margin-bottom: 0.5rem;}
+  .editor-prose :is(h2) { font-family: 'Newsreader', Georgia, serif; font-weight: 500; letter-spacing: -0.02em; font-size: 1.25rem; margin-top: 1.25rem; margin-bottom: 0.4rem; }
+  .editor-prose :is(h3) { font-weight: 600; font-size: 1.05rem; margin-top: 1rem; margin-bottom: 0.3rem; }
+  .editor-prose :is(p) { line-height: 1.62; margin: 0.5rem 0; }
+  .editor-prose :is(ul, ol) { margin: 0.4rem 0 0.4rem 1.2rem; line-height: 1.55; }
+  .editor-prose :is(li) { margin: 0.18rem 0; }
+  .editor-prose :is(blockquote) { border-left: 2px solid oklch(var(--moss)); padding-left: 0.85rem; color: oklch(var(--ink-muted)); margin: 0.7rem 0; }
+  .editor-prose :is(code) { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.85em; padding: 0 0.3em; border-radius: 4px; background: oklch(var(--surface-3)); }
+  .editor-prose [data-placeholder]::before {
+    content: attr(data-placeholder);
+    color: oklch(var(--ink-soft));
+    pointer-events: none;
+    position: absolute;
+  }
+
+  .ProseMirror:focus { outline: none; }
+  .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: oklch(var(--ink-soft));
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
+}
+
+@layer utilities {
+  .grain::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.04;
+    mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='4'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+  .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: oklch(var(--ink-soft) / 0.3);
+    border-radius: 4px;
+  }
+}

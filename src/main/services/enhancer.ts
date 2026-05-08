@@ -1,0 +1,168 @@
+// Merges raw notes + transcript with a chosen template,
+// calls Claude (preferred) or OpenAI, returns enhanced markdown.
+
+import type { TranscriptEntry } from '@shared/types.js';
+import type { Template } from '@shared/types.js';
+
+const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com/v1/messages';
+const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
+
+export interface EnhanceOptions {
+  rawNotes: string;
+  transcript: TranscriptEntry[];
+  template: Template;
+  anthropicKey?: string | null;
+  openaiKey?: string | null;
+  fetchImpl?: typeof fetch;
+}
+
+export interface EnhanceResult {
+  markdown: string;
+  modelUsed: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export class EnhancerError extends Error {}
+
+export function formatTranscript(entries: TranscriptEntry[]): string {
+  return entries
+    .map((e) => {
+      const speaker = e.speaker === 'mic' ? 'Me' : 'Other';
+      const ts = msToClock(e.startedAtMs);
+      return `[${ts}] ${speaker}: ${e.text}`;
+    })
+    .join('\n');
+}
+
+function msToClock(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60)
+    .toString()
+    .padStart(2, '0');
+  const s = (totalSec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+export function buildPrompt(opts: {
+  rawNotes: string;
+  transcript: TranscriptEntry[];
+  template: Template;
+}): { system: string; user: string } {
+  const { rawNotes, transcript, template } = opts;
+  const transcriptText = formatTranscript(transcript);
+  const system = `${template.systemPrompt}
+
+When you respond, output ONLY the structured markdown writeup — no preamble, no postscript. Use the section structure that follows. Stay grounded in the source material; do not invent facts, names, or decisions.
+
+# Output structure
+
+${template.body}`;
+
+  const user = `# Rough notes from the user
+
+${rawNotes.trim() || '(no notes taken during the meeting)'}
+
+# Transcript
+
+${transcriptText || '(no transcript available)'}`;
+
+  return { system, user };
+}
+
+export async function enhance(opts: EnhanceOptions): Promise<EnhanceResult> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const prompt = buildPrompt(opts);
+
+  if (opts.anthropicKey) {
+    return callAnthropic(prompt, opts.anthropicKey, fetchImpl);
+  }
+  if (opts.openaiKey) {
+    return callOpenAI(prompt, opts.openaiKey, fetchImpl);
+  }
+  throw new EnhancerError(
+    'No enhancement key configured. Set Anthropic or OpenAI key in Settings.',
+  );
+}
+
+async function callAnthropic(
+  prompt: { system: string; user: string },
+  apiKey: string,
+  fetchImpl: typeof fetch,
+): Promise<EnhanceResult> {
+  const model = 'claude-sonnet-4-6';
+  const body = {
+    model,
+    max_tokens: 4096,
+    system: [
+      { type: 'text', text: prompt.system, cache_control: { type: 'ephemeral' } },
+    ],
+    messages: [{ role: 'user', content: prompt.user }],
+  };
+
+  const res = await fetchImpl(ANTHROPIC_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new EnhancerError(`Anthropic API ${res.status}: ${errText}`);
+  }
+  const data = (await res.json()) as {
+    content: { type: string; text: string }[];
+    usage: { input_tokens: number; output_tokens: number };
+  };
+  const text = data.content
+    .filter((c) => c.type === 'text')
+    .map((c) => c.text)
+    .join('\n');
+  return {
+    markdown: text.trim(),
+    modelUsed: model,
+    inputTokens: data.usage.input_tokens,
+    outputTokens: data.usage.output_tokens,
+  };
+}
+
+async function callOpenAI(
+  prompt: { system: string; user: string },
+  apiKey: string,
+  fetchImpl: typeof fetch,
+): Promise<EnhanceResult> {
+  const model = 'gpt-4o';
+  const body = {
+    model,
+    temperature: 0.2,
+    messages: [
+      { role: 'system', content: prompt.system },
+      { role: 'user', content: prompt.user },
+    ],
+  };
+  const res = await fetchImpl(OPENAI_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new EnhancerError(`OpenAI API ${res.status}: ${errText}`);
+  }
+  const data = (await res.json()) as {
+    choices: { message: { content: string } }[];
+    usage: { prompt_tokens: number; completion_tokens: number };
+  };
+  return {
+    markdown: (data.choices[0]?.message.content ?? '').trim(),
+    modelUsed: model,
+    inputTokens: data.usage.prompt_tokens,
+    outputTokens: data.usage.completion_tokens,
+  };
+}
