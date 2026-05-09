@@ -11,7 +11,7 @@ import {
   Home,
 } from 'lucide-react';
 import type { Meeting } from '@shared/types.js';
-import { formatRelative } from '../lib/date';
+import { formatRelativeShort } from '../lib/date';
 import { deriveIssue } from '../lib/issue';
 import { FolderTree } from './sidebar/FolderTree';
 import { QuillMark } from './ui/QuillMark';
@@ -320,7 +320,13 @@ function SidebarBody({
             : 'In folder'}
       </div>
 
-      <div className="scroll-thin flex-1 overflow-y-auto px-2 pb-2">
+      {/* Compact single-line rows + always-on scrollbar (overflow-y: scroll
+          rather than auto reserves the gutter so the layout doesn't shift
+          when items appear/disappear, and the scrollbar is visible even
+          when macOS hides it system-wide). flex-1 + min-h-0 lets the area
+          stretch to fill the remaining sidebar space, and the bottom
+          nav-row + Vol/Issue counter stay anchored. */}
+      <div className="scroll-thin flex-1 min-h-0 overflow-y-scroll px-2 pb-2">
         {meetings.length === 0 && (
           <div className="px-3 py-6">
             <p className="microcopy text-sm leading-relaxed">
@@ -336,18 +342,20 @@ function SidebarBody({
             to={`/meeting/${m.id}`}
             onClick={onCloseDrawer}
             className={({ isActive }) =>
-              `no-drag block py-2 pl-3 pr-2 text-sm leading-tight transition-colors border-l-[3px] ${
+              `no-drag flex items-baseline justify-between gap-2 py-1.5 pl-3 pr-2 text-[13px] leading-tight transition-colors border-l-[3px] ${
                 isActive
                   ? 'border-moss text-ink font-medium bg-surface-3/40'
                   : 'border-transparent text-ink-muted hover:bg-surface-3 hover:text-ink'
               }`
             }
+            title={m.title || 'Untitled meeting'}
           >
-            <div className="truncate">{m.title || 'Untitled meeting'}</div>
-            <div className="text-[11px] text-ink-soft mt-0.5">
-              {formatRelative(m.startedAt)}
-              {m.enhancedNotes ? ' · enhanced' : m.endedAt ? ' · ended' : ''}
-            </div>
+            <span className="truncate flex-1 min-w-0">
+              {m.title || 'Untitled meeting'}
+            </span>
+            <span className="text-[10.5px] text-ink-soft shrink-0 font-mono tracking-tight">
+              {formatRelativeShort(m.startedAt)}
+            </span>
           </NavLink>
         ))}
       </div>

@@ -1,28 +1,151 @@
 # Quill — Handover for next session
 
-> **Picked-up cold? Read this top-to-bottom.** PDF export, responsive layout,
-> and calendar integration all shipped this session. The "what shipped today"
-> section below is the source of truth.
+> **Picked-up cold? Read this top-to-bottom.** Deepgram streaming
+> transcription, design audit polish, and a forest-didone icon all shipped
+> 2026-05-09. The "Queued for next session" block at the top is the active
+> punch list — three items that have to land before this is production.
 > Project: open-source Granola.ai clone (Electron + React + TypeScript).
 > Repo: https://github.com/maewa-space/quill — local: `/Users/amadeus/Claude-projects/notetaker/`.
 
 ---
 
-## State as of 2026-05-08 (end of session)
+## Queued for next session — three items, no blockers
 
-**Everything ships green.**
+These were called out and explicitly deferred at end of session 2026-05-09.
+Pick them up cold.
 
-- **71 unit tests** pass (vitest) — was 54 + 11 PDF + 6 ICS
-- **21 mocked e2e** pass (playwright + electron) — was 19, +PDF save + share
-- **3 DMG smoke** pass against the packaged app
-- **typecheck** clean (`tsc --noEmit` on both `tsconfig.node.json` and `tsconfig.web.json`)
-- **production build** clean (`pnpm build`; ~1.25 MB JS, ~50 KB CSS, fonts self-hosted as woff2 chunks)
+### 1. Deepgram WebSocket reconnect-and-resume
 
-The packaged `.app` is signed `space.maewa.quill` (not the default `Electron` identifier) and ships an AudioTee Swift binary as `extraResources` for system audio. Runs offline.
+**Where:** `src/main/services/deepgram.ts`.
+**Today:** when the WS drops (network blip, idle timeout) the `close` handler
+broadcasts `deepgram:state` with `code` + `reason` and the renderer's
+`useStreamingCapture` hook surfaces an error banner. The user has to hit
+Stop and Start again.
+**Want:** transparent reconnect. On `close` (other than user-initiated),
+re-open the channel, replay any buffered frames, and continue.
+**Approach sketch:**
+- Mark `closed` only when `closeSession()` ran (user intent), so an
+  abrupt close mid-session isn't terminal.
+- Add a small in-memory frame buffer on each channel (last ~2s of PCM,
+  capped) so we can resend after reconnect.
+- Exponential backoff: 250ms → 500ms → 1s → 2s, max 4 attempts before
+  giving up and surfacing the error.
+- Forward a `deepgram:state` `{ state: 'reconnecting', attempt }` event so
+  the UI can show a quiet microcopy ("reconnecting…") instead of the red
+  error banner.
+- Test seam: extract the WS open + on-message + on-close logic into a
+  small class so a unit test can simulate close + verify resend.
+
+### 2. Deepgram-side diarization (single conversation, speaker labels)
+
+**Where:** `src/main/services/deepgram.ts` URL builder + the renderer's
+TranscriptStream rendering.
+**Today:** we open two separate WebSockets — one per channel (mic +
+system) — so speakers are tagged by channel: "YOU" (mic) or "OTHER"
+(system). That works for a 1-on-1 call but conflates everyone on the
+"other" side into a single voice.
+**Want:** option to merge to one socket with `multichannel=true&diarize=true`
+so Deepgram returns proper speaker labels (Speaker 0, Speaker 1, …).
+**Approach sketch:**
+- Encode mic + system as a stereo PCM stream in the renderer (interleave
+  Int16 frames: L = mic, R = system) and ship one WebSocket.
+- URL flags: `&channels=2&multichannel=true&diarize=true`.
+- Deepgram returns events with a `channel_index` + `speaker` field. Map
+  `speaker=N` to "You", "Person 2", "Person 3", … (the user's voice should
+  always be on channel 0 = "You").
+- Setting in Settings → Calendar/Audio: "Diarize multi-speaker calls
+  (Deepgram)" toggle. Default off (current channel-tag behavior is fine
+  for 1-on-1).
+- TranscriptStream needs a wider speaker-tag enum than `'mic' | 'system'`
+  — extend to `'mic' | 'system' | 'speaker-N'`.
+
+### 3. Language picker UI
+
+**Where:** Settings page + `useChunkedTranscriber` + `useStreamingCapture` +
+`src/main/services/deepgram.ts` URL builder.
+**Today:** all language is auto-detect — the Whisper REST call omits
+`language`, the Deepgram WS omits the `&language=` query param. Should
+work for English / German / Spanish / French / Italian / Portuguese /
+Dutch via Nova-3's auto-detect.
+**Want:** explicit language picker in Settings (Auto + the 12-15 most
+common locales). Stored in `settings` table at
+`transcript.language` (existing settingsRepo). Read at meeting mount.
+**Approach sketch:**
+- Generic `settings:get` / `settings:set` IPC + preload bridge (currently
+  only `keys:*` is exposed; calendar reuses internal keys directly).
+- Settings page: a select dropdown above the Calendar card. Options:
+  Auto, English, German, Spanish, French, Italian, Portuguese, Dutch,
+  Japanese, Mandarin, Korean, Hindi, Russian, Polish.
+- Pass the resolved code (`undefined` for Auto) into both transcribers.
+- `deepgram.ts` `buildUrl()` already honors `language` — just thread it
+  through `openSession({ language })`.
 
 ---
 
-## What shipped today (2026-05-08, second session)
+## State as of 2026-05-09 (end of session)
+
+**Everything ships green.**
+
+- **77 unit tests** pass (vitest) — was 71 + 6 Deepgram parser tests
+- **21 mocked e2e** pass (playwright + electron) — unchanged
+- **3 DMG smoke** pass against the packaged app
+- **typecheck** clean (`tsc --noEmit` on both `tsconfig.node.json` and `tsconfig.web.json`)
+- **production build** clean (`pnpm build`; ~1.28 MB JS, ~52 KB CSS, fonts self-hosted as woff2 chunks)
+
+The packaged `.app` is signed `space.maewa.quill` and ships an AudioTee Swift binary as `extraResources` for system audio. Runs offline (Whisper) or via Deepgram WS streaming when the user sets a `dg-…` key.
+
+---
+
+## What shipped today (2026-05-09)
+
+### Deepgram streaming transcription
+
+When a Deepgram API key is set in Settings, transcription flips from chunked Whisper REST to streaming WebSocket. Granola-style cadence — text flows in continuously with an italic-muted "LIVE" ghost paragraph showing what's still being recognized.
+
+- `src/main/services/deepgram.ts` — opens two WebSockets (one per channel: mic + system) with `model=nova-3, encoding=linear16, sample_rate=16000, interim_results=true, smart_format=true, endpointing=300`. Forwards each PCM frame as raw Linear16. Parses `Results` events into `{text, isFinal, startedAtMs, durationMs, detectedLanguage}` and broadcasts via IPC.
+- `src/main/services/audio-tap.ts` — when `isDeepgramRunning()`, AudioTee's PCM frames go straight to Deepgram in-process (skipping the WAV chunking + IPC round-trip).
+- `src/renderer/src/worklets/pcm-processor.js` — AudioWorkletProcessor downsamples Float32 mic audio to 16kHz Int16 PCM. Loaded as a raw asset via Vite's `?url` import (inlines as data URI).
+- `src/renderer/src/hooks/useStreamingCapture.ts` — `getUserMedia` → `AudioContext` → `AudioWorkletNode` → IPC frame to main → WS. Subscribes to `deepgram:transcript` events and persists finals via `transcript.append` so reload survives.
+- `src/renderer/src/components/meeting/TranscriptStream.tsx` + `RightPane.tsx` — interim text renders as a ghost paragraph at the foot of the column.
+- `meeting.tsx` checks `keys.has('deepgram')` once at mount and picks the pipeline. Whisper batch path stays as fallback.
+- 6 unit tests for `parseDeepgramMessage` covering finals / `speech_final` / empty / malformed / language detection.
+
+**Cost:** Nova-3 streaming ≈ $0.46/hr; Nova-2 ≈ $0.35/hr; Whisper-1 batch (current fallback) ≈ $0.36/hr. Streaming is roughly cost-parity, not a premium.
+
+### Cadence improvements (Whisper batch path)
+
+- `useAudioCapture` chunkSeconds: `10 → 5` — halves the latency from "you finished a sentence" to "the transcript shows it" on the fallback Whisper path.
+- Removed the `language: 'en'` pin in `meeting.tsx` — the RMS gate now drops silent chunks before they hit Whisper, so auto-detect is safe and German / Spanish / French / etc. transcribe in their language. Comment in the source flags the language picker as queued work.
+- `TranscriptStream.tsx` — coalesces consecutive same-speaker entries within 4s into a single flowing paragraph. Visual rhythm now reads more like Granola.
+
+### App icon — v3 forest didone (final)
+
+Iterated through three directions; v3 is the locked one.
+
+1. **v1**: glossy iOS-26 moss-gradient squircle with white italic Q.
+2. **v2**: warm paper background, hairline moss frame, italic Newsreader Q in moss (rejected as "weird green" + "boring").
+3. **v3 (current)**: solid forest squircle (`#1f3a2c → #11241c`), cream Playfair Display 900 Q at full bleed. Picked from a 12-design portfolio + 10-color palette review (`scripts/icon-options.mjs`, `scripts/icon-colors.mjs`, output cached at `~/Downloads/quill-icon-options/`).
+
+The brand `--moss` token in `tokens.css` simultaneously shifted from `52% 0.085 145` (acidic spring green) → `31% 0.06 158` (deep forest, slightly bluer). PDF template, in-app `<QuillMark>` component, FolderTree sage swatch, and every `oklch(var(--moss))` consumer all auto-track. Dock icon and in-app accents read as one coherent green.
+
+### Design audit polish
+
+- **Animated submenus + dropdowns** (140ms fade+y) via a new `<MenuPanel>` wrapper. Action menu, Export submenu, Folder submenu, template picker, recipe menu all animate now.
+- **Editorial banner pattern replaces `window.alert()`** in `MeetingActions` for PDF/share/copy/export errors. Auto-dismisses at 5s. `EXPORTED · 14:09` moss dateline ghost confirms successful exports (4s fade).
+- **ARIA fixes**: `FolderTree` IconBtn became a real `<button>` with descriptive labels ("Rename folder Q3 Reviews", etc.); `role="menu"` / `menuitem` / `menuitemradio` on dropdowns; `role="status"` + `aria-live="polite"` on chat thinking + meeting save banner; `aria-expanded` + `aria-haspopup` on the meeting-actions trigger; Esc-to-close on action menu and template picker.
+- **Event-driven sidebar** — replaced the 4s polling interval with main-process broadcasts (`meetings:changed`, `folders:changed`). Sidebar + FolderTree subscribe via `window.quill.events.onMeetingsChanged / onFoldersChanged`.
+- **Templates + recipes responsive** — below 820px the panes collapse to a horizontal scroll-strip picker (`NarrowPicker`) with moss underline on active.
+- **Active hairline on Raw/Enhanced toggle** — moss `border-b-2` on Enhanced, ink on Raw, `aria-pressed` for screen readers.
+- **Calendar empty-state microcopy** — "connected · no upcoming meetings on the wire" (italic) when `eventCount === 0`.
+- **`document.title` per route** — meeting route shows the live title in the window chrome.
+
+### Sidebar list compaction
+
+Compact single-line rows (title + relative-time stamp on the right) instead of the previous two-line title-and-meta layout. About 2× more meetings fit in the same vertical space. Scroll gutter is now reserved (`overflow-y: scroll`) so the area doesn't shift width when the list overflows. New helper `formatRelativeShort` in `lib/date.ts` produces `now / 12m / 5h / 3d / 8w / May 8` stamps.
+
+---
+
+## What shipped earlier (2026-05-08, second session)
 
 ### PDF + Markdown export with native sharing
 
