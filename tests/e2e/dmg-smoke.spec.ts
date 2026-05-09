@@ -34,9 +34,7 @@ test('packaged DMG launches and shows onboarding', async () => {
 
   // Onboarding intro must render — confirms renderer + preload + IPC all wired.
   await expect(win.getByTestId('onboarding-intro')).toBeVisible();
-  await expect(
-    win.getByText(/A quiet notetaker for your meetings/i),
-  ).toBeVisible();
+  await expect(win.getByText(/Note every meeting/i)).toBeVisible();
 
   await app.close();
 });
