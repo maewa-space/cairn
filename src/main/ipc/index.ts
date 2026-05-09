@@ -15,6 +15,7 @@ import {
 import { getKey, hasKey, setKey, deleteKey, type KeyName } from '../services/keychain.js';
 import { transcribe, type WhisperModel } from '../services/whisper.js';
 import { enhance } from '../services/enhancer.js';
+import { deriveTitle } from '../services/title.js';
 import {
   runChat,
   historyToTurns,
@@ -89,6 +90,29 @@ export function registerIpcHandlers(): void {
     meetingsRepo.rename(id, title);
     broadcast('meetings:changed');
   });
+  // Transcript-based auto-titling. Only runs when the meeting still has the
+  // default "Untitled meeting" title — calendar-matched titles are preserved.
+  // Returns the new title on success, or null when nothing changed (no
+  // transcript yet, no LLM key, model refused, etc.).
+  ipcMain.handle(
+    'meetings:autoTitle',
+    async (_e, id: string): Promise<string | null> => {
+      const meeting = meetingsRepo.get(id);
+      if (!meeting) return null;
+      if (meeting.title !== 'Untitled meeting') return null;
+      const title = await deriveTitle({
+        transcript: meeting.transcript,
+        rawNotes: meeting.rawNotes,
+        anthropicKey: getKey('anthropic'),
+        openaiKey: getKey('openai'),
+        openrouterKey: getKey('openrouter'),
+      });
+      if (!title) return null;
+      meetingsRepo.rename(id, title);
+      broadcast('meetings:changed');
+      return title;
+    },
+  );
   ipcMain.handle('meetings:saveNotes', (_e, id: string, raw: string) => {
     meetingsRepo.saveNotes(id, raw);
     // Notes-save fires on every keystroke debounce; do not broadcast — the

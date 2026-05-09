@@ -3,6 +3,7 @@ import {
   buildSystemPrompt,
   runChat,
   ChatError,
+  formatHumanDate,
   historyToTurns,
   type ChatScope,
 } from '../../src/main/services/chat.js';
@@ -222,5 +223,22 @@ describe('historyToTurns', () => {
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'hello' },
     ]);
+  });
+});
+
+describe('formatHumanDate', () => {
+  it('renders an ISO timestamp as a friendly tag (no raw ISO leak)', () => {
+    const out = formatHumanDate('2026-05-08T15:50:26.000Z');
+    expect(out).toBe('Fri, May 8 2026 · 15:50');
+    expect(out).not.toContain('UTC');
+    expect(out).not.toContain('T15:50:26');
+  });
+
+  it('handles a different month and day', () => {
+    expect(formatHumanDate('2026-12-01T08:05:00.000Z')).toBe('Tue, Dec 1 2026 · 08:05');
+  });
+
+  it('falls back to the input string when the date is unparseable', () => {
+    expect(formatHumanDate('not-a-date')).toBe('not-a-date');
   });
 });

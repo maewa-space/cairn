@@ -253,7 +253,23 @@ export function MeetingRoute() {
 
   const stopRecording = useCallback(async () => {
     await capture.stop();
-    if (id) await window.quill.meetings.end(id);
+    if (!id) return;
+    await window.quill.meetings.end(id);
+    // Best-effort transcript-based auto-titling. Only changes the title
+    // if it's still the default "Untitled meeting" — calendar-matched
+    // titles are preserved. Fire-and-forget; the sidebar broadcast
+    // refreshes the row when it lands.
+    window.quill.meetings
+      .autoTitle(id)
+      .then((next) => {
+        if (next) {
+          setTitleDraft(next);
+          setMeeting((m) => (m ? { ...m, title: next } : m));
+        }
+      })
+      .catch((err) => {
+        console.warn('[meeting] auto-title failed:', err);
+      });
   }, [capture, id]);
 
   const deleteMeeting = useCallback(async () => {

@@ -37,6 +37,11 @@ export const quillAPI = {
       ipcRenderer.invoke('meetings:createWithCalendar', fallbackTitle),
     rename: (id: string, title: string): Promise<void> =>
       ipcRenderer.invoke('meetings:rename', id, title),
+    /** Transcript-based auto-titling. Returns the new title on success, or
+     *  null when no change was made (already titled, no transcript yet, no
+     *  LLM key, etc.). Safe to call unconditionally — main checks state. */
+    autoTitle: (id: string): Promise<string | null> =>
+      ipcRenderer.invoke('meetings:autoTitle', id),
     saveNotes: (id: string, raw: string): Promise<void> =>
       ipcRenderer.invoke('meetings:saveNotes', id, raw),
     end: (id: string): Promise<void> => ipcRenderer.invoke('meetings:end', id),

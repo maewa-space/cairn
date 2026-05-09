@@ -83,7 +83,7 @@ function meetingContext(meeting: Meeting): string {
   const trimmedTranscript = truncate(transcript, MAX_TRANSCRIPT_CHARS);
   const parts = [
     `# ${meeting.title}`,
-    `Started: ${meeting.startedAt}`,
+    `Started: ${formatHumanDate(meeting.startedAt)}`,
     '',
     '## Raw notes',
     meeting.rawNotes.trim() || '(no notes)',
@@ -102,11 +102,34 @@ function multiMeetingContext(meetings: Meeting[]): string {
       const summary =
         m.enhancedNotes?.trim() || m.rawNotes.trim() || formatTranscript(m.transcript);
       return [
-        `### ${m.title} — ${m.startedAt}`,
+        `### ${m.title} — ${formatHumanDate(m.startedAt)}`,
         truncate(summary, PER_MEETING_SUMMARY_CHARS),
       ].join('\n');
     })
     .join('\n\n');
+}
+
+/** Render a stored ISO timestamp as a friendly human-readable date for the
+ *  chat context. The LLM tends to echo whatever format we feed it, so a
+ *  raw ISO string surfaces as "2026-05-08 at 15:50:26 UTC" in answers.
+ *  This produces "Fri, May 8 2026 · 15:50" — readable in any locale and
+ *  unambiguous about the day. */
+export function formatHumanDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const weekday = d.toLocaleDateString('en-US', {
+    weekday: 'short',
+    timeZone: 'UTC',
+  });
+  const month = d.toLocaleDateString('en-US', {
+    month: 'short',
+    timeZone: 'UTC',
+  });
+  const day = d.getUTCDate();
+  const year = d.getUTCFullYear();
+  const hours = String(d.getUTCHours()).padStart(2, '0');
+  const mins = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${weekday}, ${month} ${day} ${year} · ${hours}:${mins}`;
 }
 
 function truncate(text: string, max: number): string {
