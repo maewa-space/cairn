@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, ChevronDown, Loader2 } from 'lucide-react';
+import { Sparkles, ChevronDown, Loader2, Wand2 } from 'lucide-react';
 import type { Template } from '@shared/types.js';
 import { MenuPanel } from '../ui/MenuPanel';
 
 interface EnhanceBarProps {
   disabled: boolean;
   enhancing: boolean;
+  /** null = "Auto" — main will LLM-route to the best template at Enhance time. */
   selectedTemplateId: string | null;
-  onSelect: (id: string) => void;
+  /** Pass null to revert to "Auto" (default for new meetings). */
+  onSelect: (id: string | null) => void;
   onRun: () => void;
 }
 
@@ -17,13 +19,10 @@ export function EnhanceBar(props: EnhanceBarProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    window.quill.templates.list().then((list) => {
-      setTemplates(list);
-      if (!props.selectedTemplateId && list[0]) {
-        props.onSelect(list[0].id);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // No auto-bootstrap to templates[0] anymore — null is the canonical
+    // "Auto" state, and runEnhance asks main to pick the best template
+    // when the user doesn't override.
+    window.quill.templates.list().then(setTemplates);
   }, []);
 
   // Outside click + Esc close.
@@ -45,8 +44,9 @@ export function EnhanceBar(props: EnhanceBarProps) {
     };
   }, [open]);
 
-  const selected =
-    templates.find((t) => t.id === props.selectedTemplateId) ?? templates[0];
+  const selected = props.selectedTemplateId
+    ? templates.find((t) => t.id === props.selectedTemplateId) ?? null
+    : null;
 
   return (
     <div className="flex items-center gap-2">
@@ -58,7 +58,13 @@ export function EnhanceBar(props: EnhanceBarProps) {
           aria-expanded={open}
           data-testid="template-picker"
         >
-          {selected?.name ?? 'Choose template'}
+          {selected ? (
+            selected.name
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <Wand2 size={11} className="opacity-70" /> Auto
+            </span>
+          )}
           <ChevronDown size={12} />
         </button>
         {open && (
@@ -71,6 +77,32 @@ export function EnhanceBar(props: EnhanceBarProps) {
               borderColor: 'oklch(var(--edge))',
             }}
           >
+            <button
+              type="button"
+              role="option"
+              aria-selected={props.selectedTemplateId === null}
+              onClick={() => {
+                props.onSelect(null);
+                setOpen(false);
+              }}
+              className={`block w-full text-left px-3 py-2 text-sm hover:bg-surface-2 ${
+                props.selectedTemplateId === null ? 'bg-surface-2' : ''
+              }`}
+              data-testid="template-option-auto"
+            >
+              <div className="font-medium inline-flex items-center gap-1.5">
+                <Wand2 size={11} className="opacity-70" /> Auto
+              </div>
+              <div className="text-[11px] text-ink-soft line-clamp-2">
+                Pick the best template based on what was said. Falls back to a
+                generic write-up when no LLM key is set.
+              </div>
+            </button>
+            <div
+              role="separator"
+              aria-hidden
+              className="my-1 mx-3 border-t hairline"
+            />
             {templates.map((t) => (
               <button
                 key={t.id}

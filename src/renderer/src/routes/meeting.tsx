@@ -285,23 +285,29 @@ export function MeetingRoute() {
 
   const runEnhance = useCallback(async () => {
     if (!id) return;
-    // JIT template fallback. If the EnhanceBar's bootstrap didn't land in
-    // state (race with meeting load), fetch the list and pick the first.
-    // Surface a visible error if even that turns up empty so the click
-    // never silently no-ops again.
+    // Auto-pick when the user left the dropdown on "Auto" (templateId is
+    // null). LLM-routes to the best-fitting template based on what was
+    // actually said. Falls back through main → templates[0] → "no
+    // templates" error so the click is never silent.
     let tid = templateId;
     if (!tid) {
       try {
-        const list = await window.quill.templates.list();
-        tid = list[0]?.id ?? null;
+        tid = await window.quill.templates.autoPick(id);
         if (tid) setTemplateId(tid);
       } catch (err) {
-        console.error('[enhance] template list failed:', err);
+        console.warn('[enhance] auto-pick failed; falling back to first template:', err);
+        try {
+          const list = await window.quill.templates.list();
+          tid = list[0]?.id ?? null;
+          if (tid) setTemplateId(tid);
+        } catch (err2) {
+          console.error('[enhance] template list failed:', err2);
+        }
       }
     }
     if (!tid) {
       setEnhanceError(
-        'No template selected. Open Templates and add at least one before enhancing.',
+        'No templates available. Add one in Templates before enhancing.',
       );
       return;
     }

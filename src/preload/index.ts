@@ -108,6 +108,12 @@ export const quillAPI = {
       ipcRenderer.invoke('templates:save', t),
     delete: (id: string): Promise<void> =>
       ipcRenderer.invoke('templates:delete', id),
+    /** LLM-based auto-pick. Returns a template id chosen by the LLM
+     *  given the meeting's transcript + notes; always resolves to a
+     *  valid id (falls back to "generic" / first template when no LLM
+     *  key is set or the model returns junk). */
+    autoPick: (meetingId: string): Promise<string> =>
+      ipcRenderer.invoke('templates:autoPick', meetingId),
   },
   audio: {
     // Legacy: kept for compatibility with electron-audio-loopback. The

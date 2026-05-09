@@ -16,6 +16,7 @@ import { getKey, hasKey, setKey, deleteKey, type KeyName } from '../services/key
 import { transcribe, type WhisperModel } from '../services/whisper.js';
 import { enhance } from '../services/enhancer.js';
 import { deriveTitle } from '../services/title.js';
+import { pickTemplate } from '../services/template-picker.js';
 import { defaultMeetingTitle } from '@shared/meeting-title.js';
 import {
   runChat,
@@ -171,6 +172,34 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('templates:save', (_e, t) => templatesRepo.save(t));
   ipcMain.handle('templates:delete', (_e, id: string) =>
     templatesRepo.delete(id),
+  );
+  // LLM-based auto-pick: given a meeting's transcript + notes, returns
+  // the best-fitting template id. Always resolves to a valid id from the
+  // user's template list (falls back to "generic" / first available when
+  // no LLM key is set or the model returns junk).
+  ipcMain.handle(
+    'templates:autoPick',
+    async (_e, meetingId: string): Promise<string> => {
+      const meeting = meetingsRepo.get(meetingId);
+      const templates = templatesRepo.list().map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+      }));
+      if (templates.length === 0) {
+        throw new Error('No templates available.');
+      }
+      if (!meeting) return templates[0].id;
+      return pickTemplate({
+        transcript: meeting.transcript,
+        rawNotes: meeting.rawNotes,
+        enhancedNotes: meeting.enhancedNotes,
+        templates,
+        anthropicKey: getKey('anthropic'),
+        openaiKey: getKey('openai'),
+        openrouterKey: getKey('openrouter'),
+      });
+    },
   );
 
   // System audio capture via AudioTee (Core Audio Tap).
