@@ -36,6 +36,7 @@ export function MeetingRoute() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
   const [bodyTab, setBodyTab] = useState<'body' | 'side'>('body');
   const [interim, setInterim] = useState<{
     speaker: Speaker;
@@ -141,7 +142,10 @@ export function MeetingRoute() {
         setTitleDraft(m.title);
         setEntries(m.transcript);
         setEnhanced(m.enhancedNotes);
-        setTemplateId(m.templateId);
+        // Don't clobber a templateId that EnhanceBar may have already
+        // bootstrapped to the first template — only override when the
+        // meeting actually has one persisted on it.
+        setTemplateId((cur) => m.templateId ?? cur);
         setFolderId(m.folderId);
         setView(m.enhancedNotes ? 'enhanced' : 'notes');
       })
@@ -280,12 +284,33 @@ export function MeetingRoute() {
   }, [id, capture, nav]);
 
   const runEnhance = useCallback(async () => {
-    if (!templateId || !id) return;
+    if (!id) return;
+    // JIT template fallback. If the EnhanceBar's bootstrap didn't land in
+    // state (race with meeting load), fetch the list and pick the first.
+    // Surface a visible error if even that turns up empty so the click
+    // never silently no-ops again.
+    let tid = templateId;
+    if (!tid) {
+      try {
+        const list = await window.quill.templates.list();
+        tid = list[0]?.id ?? null;
+        if (tid) setTemplateId(tid);
+      } catch (err) {
+        console.error('[enhance] template list failed:', err);
+      }
+    }
+    if (!tid) {
+      setEnhanceError(
+        'No template selected. Open Templates and add at least one before enhancing.',
+      );
+      return;
+    }
+    setEnhanceError(null);
     setEnhancing(true);
     try {
       const result = await window.quill.enhance.run({
         meetingId: id,
-        templateId,
+        templateId: tid,
         rawNotes: notesRef.current,
       });
       setEnhanced(result.markdown);
@@ -306,7 +331,7 @@ export function MeetingRoute() {
         });
     } catch (e) {
       console.error('[enhance]', e);
-      alert(e instanceof Error ? e.message : String(e));
+      setEnhanceError(e instanceof Error ? e.message : String(e));
     } finally {
       setEnhancing(false);
     }
@@ -544,6 +569,30 @@ export function MeetingRoute() {
                 <button
                   className="text-ink-soft hover:text-ink underline shrink-0 text-xs"
                   onClick={() => setNotesError(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            {enhanceError && (
+              <div
+                role="alert"
+                aria-live="polite"
+                data-testid="enhance-error"
+                className={`mx-${isMobile ? '4' : '7'} mt-3 flex items-start justify-between gap-3 border-t border-l-2 border-l-accent border-t-edge px-3 py-2`}
+              >
+                <p className="microcopy text-xs leading-relaxed">
+                  <span
+                    className="eyebrow mr-1.5"
+                    style={{ color: 'oklch(var(--accent))' }}
+                  >
+                    Couldn't enhance
+                  </span>
+                  <span className="ml-1 opacity-80 not-italic font-mono">{enhanceError}</span>
+                </p>
+                <button
+                  className="text-ink-soft hover:text-ink underline shrink-0 text-xs"
+                  onClick={() => setEnhanceError(null)}
                 >
                   Dismiss
                 </button>
