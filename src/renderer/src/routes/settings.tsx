@@ -14,17 +14,21 @@ export function SettingsRoute() {
   const [openaiSet, setOpenaiSet] = useState(false);
   const [anthropicSet, setAnthropicSet] = useState(false);
   const [openrouterSet, setOpenrouterSet] = useState(false);
+  const [deepgramSet, setDeepgramSet] = useState(false);
   const [openaiInput, setOpenaiInput] = useState('');
   const [anthropicInput, setAnthropicInput] = useState('');
   const [openrouterInput, setOpenrouterInput] = useState('');
+  const [deepgramInput, setDeepgramInput] = useState('');
   const [savingOpenai, setSavingOpenai] = useState(false);
   const [savingAnthropic, setSavingAnthropic] = useState(false);
   const [savingOpenrouter, setSavingOpenrouter] = useState(false);
+  const [savingDeepgram, setSavingDeepgram] = useState(false);
 
   const refresh = async () => {
     setOpenaiSet(await window.quill.keys.has('openai'));
     setAnthropicSet(await window.quill.keys.has('anthropic'));
     setOpenrouterSet(await window.quill.keys.has('openrouter'));
+    setDeepgramSet(await window.quill.keys.has('deepgram'));
   };
 
   useEffect(() => {
@@ -32,7 +36,7 @@ export function SettingsRoute() {
   }, []);
 
   const saveKey = async (
-    name: 'openai' | 'anthropic' | 'openrouter',
+    name: 'openai' | 'anthropic' | 'openrouter' | 'deepgram',
     value: string,
     setSaving: (v: boolean) => void,
     clearInput: () => void,
@@ -48,7 +52,7 @@ export function SettingsRoute() {
     }
   };
 
-  const removeKey = async (name: 'openai' | 'anthropic' | 'openrouter') => {
+  const removeKey = async (name: 'openai' | 'anthropic' | 'openrouter' | 'deepgram') => {
     await window.quill.keys.delete(name);
     await refresh();
   };
@@ -94,8 +98,23 @@ export function SettingsRoute() {
             onRemove={() => removeKey('openrouter')}
           />
           <KeyCard
+            title="Deepgram"
+            description="Streaming transcription via Nova-3. With this key set, the transcript flows in real-time instead of arriving in 5-second chunks. Falls back to OpenAI Whisper if not set."
+            placeholder="dg-..."
+            isSet={deepgramSet}
+            value={deepgramInput}
+            setValue={setDeepgramInput}
+            saving={savingDeepgram}
+            onSave={() =>
+              saveKey('deepgram', deepgramInput, setSavingDeepgram, () =>
+                setDeepgramInput(''),
+              )
+            }
+            onRemove={() => removeKey('deepgram')}
+          />
+          <KeyCard
             title="OpenAI"
-            description="Used for Whisper transcription. Also a fallback for enhancement when no OpenRouter key is set."
+            description="Used for Whisper transcription (fallback when no Deepgram key). Also a fallback for enhancement when no OpenRouter key is set."
             placeholder="sk-..."
             isSet={openaiSet}
             value={openaiInput}

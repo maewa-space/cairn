@@ -10,6 +10,7 @@ import { MeetingActions } from '../components/meeting/MeetingActions';
 import { RightPane } from '../components/meeting/RightPane';
 import { useAudioCapture } from '../hooks/useAudioCapture';
 import { useChunkedTranscriber } from '../hooks/useChunkedTranscriber';
+import { useStreamingCapture } from '../hooks/useStreamingCapture';
 import { BREAKPOINTS, useMediaQuery } from '../hooks/useMediaQuery';
 import { formatTime } from '../lib/date';
 
@@ -35,6 +36,14 @@ export function MeetingRoute() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
   const [bodyTab, setBodyTab] = useState<'body' | 'side'>('body');
+  const [interim, setInterim] = useState<{
+    speaker: 'mic' | 'system';
+    text: string;
+  } | null>(null);
+  // Pipeline choice — flips to streaming when the user has a Deepgram key
+  // saved. Resolved at mount; switching providers mid-meeting is not
+  // supported (we'd have to tear down + rebuild the audio pipeline).
+  const [streamingMode, setStreamingMode] = useState<boolean | null>(null);
   const isNarrow = useMediaQuery(BREAKPOINTS.narrowBody);
   const isMobile = useMediaQuery(BREAKPOINTS.mobile);
   const startedRef = useRef<number | null>(null);
@@ -44,16 +53,39 @@ export function MeetingRoute() {
   // toggles. Reduced-motion guard collapses to ~0ms automatically.
   const firstViewRef = useRef(true);
 
+  // Resolve pipeline once on mount. Streaming requires a Deepgram key.
+  useEffect(() => {
+    let alive = true;
+    window.quill.keys
+      .has('deepgram')
+      .then((has) => {
+        if (alive) setStreamingMode(has);
+      })
+      .catch(() => {
+        if (alive) setStreamingMode(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const { enqueue, pending: pendingChunks } = useChunkedTranscriber({
-    // Pin to English. Whisper auto-detect drifts into Swedish/Spanish/Russian
-    // on near-silent input which then surfaces as hallucinated transcript.
-    language: 'en',
+    // Auto-detect language. We previously pinned to English as a defensive
+    // workaround for Whisper hallucinating in random languages on silent
+    // input — but the mic + system-audio RMS gates now drop silent chunks
+    // before they ever reach Whisper, so auto-detect is safe and lets
+    // German / Spanish / French speakers actually transcribe in their
+    // language. If hallucinated language drift returns we'll surface a
+    // user-facing language picker in Settings.
     onEntry: (entry) => setEntries((prev) => [...prev, entry]),
     onError: (err) => console.error('[transcribe]', err),
   });
 
-  const capture = useAudioCapture({
-    chunkSeconds: 10,
+  const batchCapture = useAudioCapture({
+    // 5-second chunks instead of 10 — halves the latency from "you finished
+    // a sentence" to "the transcript shows it." Closer in feel to streaming
+    // transcription. Trade-off: roughly 2× Whisper API calls per minute.
+    chunkSeconds: 5,
     onChunk: ({ speaker, blob, startedAtMs, durationMs }) => {
       enqueue({ meetingId: id, speaker, blob, startedAtMs, durationMs });
     },
@@ -62,6 +94,25 @@ export function MeetingRoute() {
       setSystemLevel(sys);
     },
   });
+
+  const streamingCapture = useStreamingCapture({
+    meetingId: id,
+    onEntry: (entry) => {
+      setEntries((prev) => [...prev, entry]);
+      setInterim(null);
+    },
+    onInterim: (info) => {
+      setInterim({ speaker: info.speaker, text: info.text });
+    },
+    onLevel: (mic, sys) => {
+      setMicLevel(mic);
+      setSystemLevel(sys);
+    },
+  });
+
+  // Active capture pipeline — always defined so React hooks fire above don't
+  // get conditional, but the inactive one is a no-op until its start() runs.
+  const capture = streamingMode ? streamingCapture : batchCapture;
 
   // Load meeting
   useEffect(() => {
@@ -479,7 +530,7 @@ export function MeetingRoute() {
               isNarrow ? 'border-t' : 'border-l'
             } hairline flex flex-col min-h-0`}
           >
-            <RightPane meetingId={id} entries={entries} />
+            <RightPane meetingId={id} entries={entries} interim={interim} />
           </div>
         )}
       </div>

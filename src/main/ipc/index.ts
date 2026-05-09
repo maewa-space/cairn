@@ -25,6 +25,13 @@ import {
   isAudioTapRunning,
 } from '../services/audio-tap.js';
 import {
+  openSession as openDeepgramSession,
+  closeSession as closeDeepgramSession,
+  sendFrame as sendDeepgramFrame,
+  isSessionRunning as isDeepgramRunning,
+  type DeepgramSpeaker,
+} from '../services/deepgram.js';
+import {
   renderMeetingPdfToFile,
   pickDefaultPageSize,
   type PdfPageSize,
@@ -121,6 +128,32 @@ export function registerIpcHandlers(): void {
     await stopAudioTap();
   });
   ipcMain.handle('audio-tap:isRunning', () => isAudioTapRunning());
+
+  // Deepgram streaming session — opens 2 WebSockets (mic + system) and
+  // forwards PCM frames the renderer captures via AudioWorklet (mic) and
+  // AudioTee (system, which already produces 16-bit PCM at 16kHz).
+  ipcMain.handle(
+    'deepgram:open',
+    (_e, args: { meetingId: string; language?: string }) => {
+      const apiKey = getKey('deepgram');
+      if (!apiKey) throw new Error('Deepgram API key not set.');
+      openDeepgramSession({
+        meetingId: args.meetingId,
+        apiKey,
+        language: args.language,
+      });
+    },
+  );
+  ipcMain.handle(
+    'deepgram:frame',
+    (_e, args: { speaker: DeepgramSpeaker; pcm: ArrayBuffer }) => {
+      sendDeepgramFrame(args.speaker, Buffer.from(args.pcm));
+    },
+  );
+  ipcMain.handle('deepgram:close', () => {
+    closeDeepgramSession();
+  });
+  ipcMain.handle('deepgram:isRunning', () => isDeepgramRunning());
 
   // Permissions (macOS TCC)
   ipcMain.handle('permissions:status', () => {

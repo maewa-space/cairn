@@ -9,6 +9,10 @@
 import { app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
 import type { AudioTee as AudioTeeType } from 'audiotee';
+import {
+  isSessionRunning as isDeepgramRunning,
+  sendFrame as sendDeepgramFrame,
+} from './deepgram.js';
 
 type AudioTeeCtor = typeof AudioTeeType;
 let AudioTeeCached: AudioTeeCtor | null = null;
@@ -160,10 +164,17 @@ export async function startAudioTap(seconds = 10): Promise<void> {
   });
 
   tap.on('data', (chunk) => {
-    buffer.push(chunk.data);
-    // Push a 0-1 amplitude reading for the renderer level meter, throttled
-    // by chunkDurationMs (default 200ms in audiotee). Cheap RMS over the
-    // buffer slice avoids needing a WebAudio analyser in the renderer.
+    // When a Deepgram streaming session is open, forward each PCM frame
+    // directly — skip the 5s buffer + WAV chunking + Whisper REST round-
+    // trip entirely. Same audio data, much lower latency.
+    if (isDeepgramRunning()) {
+      sendDeepgramFrame('system', chunk.data);
+    } else {
+      buffer.push(chunk.data);
+    }
+    // Always emit a level meter — the UI uses it regardless of pipeline.
+    // Cheap RMS over the buffer slice avoids needing a WebAudio analyser
+    // in the renderer.
     const amp = rms16(chunk.data);
     // Boost to map typical spoken/music RMS (~0.02-0.15) to a useful 0-1 range.
     const level = Math.min(1, amp * 6);

@@ -8,11 +8,15 @@ type Tab = 'chat' | 'transcript';
 interface RightPaneProps {
   meetingId: string;
   entries: TranscriptEntry[];
+  /** Optional in-flight Deepgram interim text. Rendered as italic-muted
+   *  ghost at the bottom of the transcript while the speaker is still
+   *  talking. Final entries land in `entries`. */
+  interim?: { speaker: 'mic' | 'system'; text: string } | null;
 }
 
 const TAB_PREF_KEY = 'quill.meeting.rightPane';
 
-export function RightPane({ meetingId, entries }: RightPaneProps) {
+export function RightPane({ meetingId, entries, interim }: RightPaneProps) {
   const [tab, setTab] = useState<Tab>(() => {
     const v =
       typeof localStorage !== 'undefined'
@@ -69,7 +73,7 @@ export function RightPane({ meetingId, entries }: RightPaneProps) {
             emptyHint="Ask about this meeting. Try /coach, /follow-up, /action-items, /decisions, or /objections."
           />
         ) : (
-          <TranscriptStream entries={entries} />
+          <TranscriptStream entries={entries} interim={interim ?? null} />
         )}
       </div>
     </div>

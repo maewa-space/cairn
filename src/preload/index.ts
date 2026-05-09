@@ -114,6 +114,53 @@ export const quillAPI = {
     disableLoopback: (): Promise<void> =>
       ipcRenderer.invoke('disable-loopback-audio'),
   },
+  deepgram: {
+    open: (args: { meetingId: string; language?: string }): Promise<void> =>
+      ipcRenderer.invoke('deepgram:open', args),
+    sendFrame: (args: {
+      speaker: 'mic' | 'system';
+      pcm: ArrayBuffer;
+    }): Promise<void> => ipcRenderer.invoke('deepgram:frame', args),
+    close: (): Promise<void> => ipcRenderer.invoke('deepgram:close'),
+    isRunning: (): Promise<boolean> => ipcRenderer.invoke('deepgram:isRunning'),
+    onTranscript: (
+      handler: (event: {
+        meetingId: string;
+        speaker: 'mic' | 'system';
+        text: string;
+        isFinal: boolean;
+        startedAtMs: number;
+        durationMs: number;
+        detectedLanguage: string | null;
+      }) => void,
+    ): (() => void) => {
+      const listener = (_e: unknown, payload: Parameters<typeof handler>[0]) =>
+        handler(payload);
+      ipcRenderer.on('deepgram:transcript', listener);
+      return () => ipcRenderer.removeListener('deepgram:transcript', listener);
+    },
+    onState: (
+      handler: (info: {
+        speaker: 'mic' | 'system';
+        state: string;
+        code?: number;
+        reason?: string;
+      }) => void,
+    ): (() => void) => {
+      const listener = (_e: unknown, info: Parameters<typeof handler>[0]) =>
+        handler(info);
+      ipcRenderer.on('deepgram:state', listener);
+      return () => ipcRenderer.removeListener('deepgram:state', listener);
+    },
+    onError: (
+      handler: (info: { speaker: 'mic' | 'system'; message: string }) => void,
+    ): (() => void) => {
+      const listener = (_e: unknown, info: Parameters<typeof handler>[0]) =>
+        handler(info);
+      ipcRenderer.on('deepgram:error', listener);
+      return () => ipcRenderer.removeListener('deepgram:error', listener);
+    },
+  },
   audioTap: {
     start: (chunkSeconds: number): Promise<void> =>
       ipcRenderer.invoke('audio-tap:start', chunkSeconds),
@@ -157,13 +204,13 @@ export const quillAPI = {
       ipcRenderer.invoke('permissions:openSystemSettings', pane),
   },
   keys: {
-    has: (name: 'openai' | 'anthropic' | 'openrouter'): Promise<boolean> =>
+    has: (name: 'openai' | 'anthropic' | 'openrouter' | 'deepgram'): Promise<boolean> =>
       ipcRenderer.invoke('keys:has', name),
     set: (
-      name: 'openai' | 'anthropic' | 'openrouter',
+      name: 'openai' | 'anthropic' | 'openrouter' | 'deepgram',
       value: string,
     ): Promise<void> => ipcRenderer.invoke('keys:set', name, value),
-    delete: (name: 'openai' | 'anthropic' | 'openrouter'): Promise<void> =>
+    delete: (name: 'openai' | 'anthropic' | 'openrouter' | 'deepgram'): Promise<void> =>
       ipcRenderer.invoke('keys:delete', name),
   },
   whisper: {
