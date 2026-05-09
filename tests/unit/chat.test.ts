@@ -24,6 +24,7 @@ const meeting: Meeting = {
   folderId: null,
   calendarEventId: null,
   attendees: [],
+  titleIsAuto: false,
   transcript: [
     {
       id: 't1',

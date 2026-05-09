@@ -16,6 +16,7 @@ import { getKey, hasKey, setKey, deleteKey, type KeyName } from '../services/key
 import { transcribe, type WhisperModel } from '../services/whisper.js';
 import { enhance } from '../services/enhancer.js';
 import { deriveTitle } from '../services/title.js';
+import { defaultMeetingTitle } from '@shared/meeting-title.js';
 import {
   runChat,
   historyToTurns,
@@ -63,52 +64,79 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('meetings:list', () => meetingsRepo.list());
   ipcMain.handle('meetings:get', (_e, id: string) => meetingsRepo.get(id));
   // Plain create — calendar matching is opt-in via meetings:createWithCalendar.
+  // The renderer typically passes "" or a user-typed string; an empty / blank
+  // title falls back to the timestamp default ("Mon May 12 · 14:30") so the
+  // sidebar doesn't show identical "Untitled" rows.
   ipcMain.handle('meetings:create', (_e, title: string) => {
-    const m = meetingsRepo.create(title);
+    const trimmed = title.trim();
+    const isAuto = trimmed.length === 0;
+    const finalTitle = isAuto ? defaultMeetingTitle() : trimmed;
+    const m = meetingsRepo.create(finalTitle, { titleIsAuto: isAuto });
     broadcast('meetings:changed');
     return m;
   });
   // Auto-titled create. Looks up a calendar event matching now (±10 min window),
-  // and if found, uses its title + attendees. Falls back to the supplied title
-  // (or "Untitled meeting") when nothing matches. The renderer can opt out by
-  // calling meetings:create instead.
+  // and if found, uses its title + attendees. Falls back to the timestamp
+  // default when nothing matches. Calendar-matched titles are also flagged as
+  // auto so a later Enhance can refine if the event title is generic
+  // ("Daily standup", "1:1") — a manual rename will lock it in.
   ipcMain.handle(
     'meetings:createWithCalendar',
     (_e, fallbackTitle: string) => {
       const match = calendarRepo.bestMatchAround();
-      const m = match
-        ? meetingsRepo.create(match.title, {
-            calendarEventId: match.id,
-            attendees: match.attendees,
-          })
-        : meetingsRepo.create(fallbackTitle);
+      if (match) {
+        const m = meetingsRepo.create(match.title, {
+          calendarEventId: match.id,
+          attendees: match.attendees,
+          titleIsAuto: true,
+        });
+        broadcast('meetings:changed');
+        return m;
+      }
+      const trimmed = fallbackTitle.trim();
+      const isAuto = trimmed.length === 0;
+      const m = meetingsRepo.create(
+        isAuto ? defaultMeetingTitle() : trimmed,
+        { titleIsAuto: isAuto },
+      );
       broadcast('meetings:changed');
       return m;
     },
   );
+  // Manual rename — clears the auto flag so future auto-title passes leave it alone.
   ipcMain.handle('meetings:rename', (_e, id: string, title: string) => {
-    meetingsRepo.rename(id, title);
+    meetingsRepo.rename(id, title, { titleIsAuto: false });
     broadcast('meetings:changed');
   });
-  // Transcript-based auto-titling. Only runs when the meeting still has the
-  // default "Untitled meeting" title — calendar-matched titles are preserved.
+  // Transcript-based auto-titling. Runs whenever the title was Quill-
+  // generated (timestamp default, calendar-matched, or a previous LLM
+  // derivation) — manual renames are locked in via title_is_auto = 0 and
+  // are never overwritten. Triggered on Stop recording AND after Enhance:
+  // the second call benefits from the polished `enhancedNotes` content,
+  // which usually carries a much sharper signal than the raw transcript.
   // Returns the new title on success, or null when nothing changed (no
-  // transcript yet, no LLM key, model refused, etc.).
+  // transcript yet, no LLM key, model refused, locked-in title, etc.).
   ipcMain.handle(
     'meetings:autoTitle',
     async (_e, id: string): Promise<string | null> => {
       const meeting = meetingsRepo.get(id);
       if (!meeting) return null;
-      if (meeting.title !== 'Untitled meeting') return null;
+      if (!meeting.titleIsAuto) return null;
       const title = await deriveTitle({
         transcript: meeting.transcript,
         rawNotes: meeting.rawNotes,
+        // Enhanced notes carry a structured summary — much better signal
+        // for picking a 3-6 word title than raw transcript chunks alone.
+        enhancedNotes: meeting.enhancedNotes,
         anthropicKey: getKey('anthropic'),
         openaiKey: getKey('openai'),
         openrouterKey: getKey('openrouter'),
       });
       if (!title) return null;
-      meetingsRepo.rename(id, title);
+      // titleIsAuto stays true so a future Enhance can refine again if the
+      // user adds more transcript or re-runs enhancement with a different
+      // template. Cleared only by an explicit manual rename.
+      meetingsRepo.rename(id, title, { titleIsAuto: true });
       broadcast('meetings:changed');
       return title;
     },

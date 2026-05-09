@@ -107,6 +107,31 @@ describe('deriveTitle', () => {
     expect(url).toContain('anthropic.com');
   });
 
+  it('prefers enhanced notes over raw transcript when both are present', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'Enhanced Title' } }],
+      }),
+    });
+    await deriveTitle({
+      transcript: sampleTranscript,
+      rawNotes: 'raw scratch',
+      enhancedNotes:
+        '## Summary\nThe team reviewed Q3 pricing tiers and agreed on the discount strategy.',
+      openrouterKey: 'sk-or-test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const body = JSON.parse(
+      (fetchImpl.mock.calls[0] as [string, { body: string }])[1].body,
+    ) as { messages: Array<{ role: string; content: string }> };
+    const userMessage = body.messages.find((m) => m.role === 'user')!.content;
+    // Enhanced notes carry the strongest signal — the prompt should be
+    // built from them, not from the raw transcript.
+    expect(userMessage).toContain('Q3 pricing tiers');
+    expect(userMessage).not.toContain('chunk 0 talking about');
+  });
+
   it('returns null when the LLM call fails', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: false,

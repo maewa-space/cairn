@@ -80,8 +80,10 @@ export function Sidebar({
 
   const newMeeting = async () => {
     // Auto-title from the active calendar event (±10 min window) when one
-    // matches, otherwise fall back to "Untitled meeting".
-    const m = await window.quill.meetings.createWithCalendar('Untitled meeting');
+    // matches; otherwise main fills in a readable timestamp default
+    // ("Mon May 12 · 14:30") that the post-Enhance auto-title pass can
+    // refine into something semantic later.
+    const m = await window.quill.meetings.createWithCalendar('');
     if (filter !== 'all' && filter !== 'unfiled') {
       await window.quill.meetings.moveToFolder(m.id, filter);
     }

@@ -31,6 +31,11 @@ const MAX_TITLE_CHARS = 80;
 export interface DeriveTitleOptions {
   transcript: TranscriptEntry[];
   rawNotes: string;
+  /** Enhanced (LLM-polished) notes, when available. Strongest signal for a
+   *  good title — often opens with a clear summary line. Pass through
+   *  whenever it's been generated so the post-Enhance auto-title pass can
+   *  use it. */
+  enhancedNotes?: string | null;
   anthropicKey?: string | null;
   openaiKey?: string | null;
   openrouterKey?: string | null;
@@ -44,8 +49,13 @@ export class TitleError extends Error {}
 export async function deriveTitle(
   opts: DeriveTitleOptions,
 ): Promise<string | null> {
+  // Prefer enhancedNotes when present — it's the cleanest signal — and fall
+  // back to raw notes + transcript when the meeting hasn't been enhanced.
   const transcript = formatTranscript(opts.transcript);
-  const corpus = [opts.rawNotes.trim(), transcript].filter(Boolean).join('\n');
+  const enhanced = opts.enhancedNotes?.trim() ?? '';
+  const corpus = enhanced
+    ? enhanced
+    : [opts.rawNotes.trim(), transcript].filter(Boolean).join('\n');
   if (corpus.length < MIN_TRANSCRIPT_CHARS) return null;
   const trimmed = corpus.length > MAX_TRANSCRIPT_CHARS
     ? `${corpus.slice(0, MAX_TRANSCRIPT_CHARS)}\n…(truncated)`

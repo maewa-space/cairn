@@ -290,6 +290,20 @@ export function MeetingRoute() {
       });
       setEnhanced(result.markdown);
       setView('enhanced');
+      // Refine the auto-title now that we have polished notes — much
+      // stronger signal than raw transcript alone. Skipped automatically
+      // if the user already typed a title (titleIsAuto cleared on rename).
+      window.quill.meetings
+        .autoTitle(id)
+        .then((next) => {
+          if (next) {
+            setTitleDraft(next);
+            setMeeting((m) => (m ? { ...m, title: next } : m));
+          }
+        })
+        .catch((err) => {
+          console.warn('[enhance] auto-title refine failed:', err);
+        });
     } catch (e) {
       console.error('[enhance]', e);
       alert(e instanceof Error ? e.message : String(e));

@@ -70,8 +70,9 @@ export function HomeRoute() {
 
   const start = async () => {
     // Auto-title from the active calendar event (±10 min window). Falls back
-    // to "Untitled meeting" when no event matches or no calendar is set up.
-    const m = await window.quill.meetings.createWithCalendar('Untitled meeting');
+    // to a readable timestamp default ("Mon May 12 · 14:30") which Enhance
+    // refines into a semantic title once notes have been polished.
+    const m = await window.quill.meetings.createWithCalendar('');
     nav(`/meeting/${m.id}`);
   };
 
