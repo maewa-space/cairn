@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Feather, KeyRound, Mic, Monitor, Sparkles } from 'lucide-react';
+import { ArrowRight, KeyRound, Mic, Sparkles, Volume2 } from 'lucide-react';
+import { Masthead } from '../components/Masthead';
+import { formatIssueDate } from '../lib/issue';
 
 type Step = 'intro' | 'permissions' | 'keys';
 
@@ -8,7 +10,7 @@ export function OnboardingRoute() {
   const nav = useNavigate();
   const [step, setStep] = useState<Step>('intro');
   const [openaiInput, setOpenaiInput] = useState('');
-  const [anthropicInput, setAnthropicInput] = useState('');
+  const [openrouterInput, setOpenrouterInput] = useState('');
   const [saving, setSaving] = useState(false);
 
   const finish = async () => {
@@ -17,8 +19,8 @@ export function OnboardingRoute() {
       if (openaiInput.trim()) {
         await window.quill.keys.set('openai', openaiInput.trim());
       }
-      if (anthropicInput.trim()) {
-        await window.quill.keys.set('anthropic', anthropicInput.trim());
+      if (openrouterInput.trim()) {
+        await window.quill.keys.set('openrouter', openrouterInput.trim());
       }
       sessionStorage.setItem('quill.onboarded', '1');
     } finally {
@@ -34,49 +36,45 @@ export function OnboardingRoute() {
 
   return (
     <div className="relative h-full overflow-y-auto pt-12">
-      <div className="mx-auto max-w-2xl px-10 py-8">
-        <div className="flex items-center gap-2 text-moss mb-8">
-          <Feather size={18} strokeWidth={1.6} />
-          <span className="font-serif text-lg tracking-tight">Quill</span>
-        </div>
+      <div className="mx-auto max-w-2xl px-5 sm:px-10 py-8">
+        <Masthead left="Quill — Issue Zero" right={formatIssueDate()} />
 
         {step === 'intro' && (
           <section data-testid="onboarding-intro">
-            <div className="text-xs uppercase tracking-[0.18em] text-ink-soft mb-2">
-              Welcome
-            </div>
+            <div className="eyebrow mb-3">Welcome — Step 1 of 3</div>
             <h1
-              className="font-serif text-[clamp(2rem,1.4rem+1.6vw,2.75rem)] tracking-tight leading-tight"
-              style={{ letterSpacing: '-0.022em' }}
+              className="font-serif text-[clamp(2.25rem,1.4rem+2vw,3rem)] tracking-tight leading-[1.05]"
+              style={{ letterSpacing: '-0.024em' }}
             >
-              A quiet notetaker for your meetings.
+              Note every meeting.<br />
+              <span className="italic text-ink-muted">Polish it later.</span>
             </h1>
-            <p className="mt-4 text-ink-muted leading-relaxed max-w-prose">
-              Quill listens to your computer's audio and your microphone, transcribes
-              the conversation locally to your machine, and turns your rough notes
-              into a structured writeup. No bots join your call. No recordings stay
-              on disk.
+            <p className="mt-5 text-ink-muted leading-relaxed max-w-prose">
+              Quill listens to your computer's audio and your microphone,
+              transcribes the conversation, and turns rough notes into a clean
+              writeup. <span className="italic">No bot joins your call.</span>{' '}
+              Audio is discarded after each chunk — only the transcript stays.
             </p>
 
-            <ul className="mt-6 space-y-3">
+            <ul className="mt-8">
               <Bullet
-                icon={<Monitor size={14} />}
-                title="System audio + microphone"
-                body="Two parallel streams, tagged so you always know who said what."
+                icon={<Volume2 size={18} strokeWidth={1.6} />}
+                title="Two streams, one transcript"
+                body="System audio (the other side) and your microphone, captured in parallel and tagged so you always know who said what."
               />
               <Bullet
-                icon={<Sparkles size={14} />}
+                icon={<Sparkles size={18} strokeWidth={1.6} />}
                 title="Templates that match the meeting"
-                body="Customer Discovery, User Interview, Pitch, Stand-up, 1-on-1, and your own."
+                body="Customer Discovery, User Interview, Pitch, Stand-up, 1-on-1 — plus your own. Slash-recipes for in-the-moment prompts."
               />
               <Bullet
-                icon={<KeyRound size={14} />}
+                icon={<KeyRound size={18} strokeWidth={1.6} />}
                 title="Your keys, your data"
-                body="API keys live in macOS Keychain. The transcript and notes stay in a local SQLite file."
+                body="Keys live encrypted in macOS Keychain. Transcripts and notes stay in a local SQLite file you can grep."
               />
             </ul>
 
-            <div className="mt-9">
+            <div className="mt-10">
               <button
                 onClick={() => setStep('permissions')}
                 className="btn btn-primary"
@@ -90,9 +88,7 @@ export function OnboardingRoute() {
 
         {step === 'permissions' && (
           <section data-testid="onboarding-permissions">
-            <div className="text-xs uppercase tracking-[0.18em] text-ink-soft mb-2">
-              Step 2 of 3
-            </div>
+            <div className="eyebrow mb-3">Step 2 of 3</div>
             <h1
               className="font-serif text-[clamp(1.75rem,1.2rem+1.4vw,2.5rem)] tracking-tight leading-tight"
               style={{ letterSpacing: '-0.022em' }}
@@ -100,21 +96,21 @@ export function OnboardingRoute() {
               macOS will ask twice.
             </h1>
             <p className="mt-4 text-ink-muted leading-relaxed max-w-prose">
-              The first time you record, macOS prompts for two permissions. Both are
-              required for Quill to do its job; deny them and Quill simply can't
-              capture anything.
+              When you start your first meeting, macOS prompts for two permissions.
+              Grant the first to capture your voice, the second to capture the other
+              side. Quill never records video — it just needs the audio stream.
             </p>
 
-            <div className="mt-6 space-y-3">
+            <div className="mt-6">
               <PermCard
-                icon={<Mic size={14} />}
+                icon={<Mic size={18} strokeWidth={1.6} />}
                 title="Microphone"
-                body="So your voice can be transcribed in the same conversation as the other side."
+                body="Captures your voice. Asked at the moment you press Record."
               />
               <PermCard
-                icon={<Monitor size={14} />}
-                title="Screen Recording"
-                body="macOS only exposes system audio through Apple's ScreenCaptureKit, which lives behind the Screen Recording permission. There is no audio-only path — Granola, Jamie, and every other notetaker on macOS do the same. Quill stops the video track immediately and uses only the audio."
+                icon={<Volume2 size={18} strokeWidth={1.6} />}
+                title="System Audio Recording"
+                body="Captures the other side of the call (Zoom / Meet / Teams audio). Quill uses Apple's Core Audio Tap via the AudioTee binary — no Screen Recording, no video. On macOS Sequoia and later, you'll find it under Privacy & Security → Screen & System Audio Recording → System Audio Recording Only."
               />
             </div>
 
@@ -138,9 +134,7 @@ export function OnboardingRoute() {
 
         {step === 'keys' && (
           <section data-testid="onboarding-keys">
-            <div className="text-xs uppercase tracking-[0.18em] text-ink-soft mb-2">
-              Step 3 of 3
-            </div>
+            <div className="eyebrow mb-3">Step 3 of 3</div>
             <h1
               className="font-serif text-[clamp(1.75rem,1.2rem+1.4vw,2.5rem)] tracking-tight leading-tight"
               style={{ letterSpacing: '-0.022em' }}
@@ -148,30 +142,34 @@ export function OnboardingRoute() {
               Bring your own keys.
             </h1>
             <p className="mt-4 text-ink-muted leading-relaxed max-w-prose">
-              Quill needs an OpenAI key for Whisper transcription. Add an Anthropic
-              key too if you want Claude to handle note enhancement (better
-              instruction-following, prompt-cached on the template). Both are stored
-              encrypted via macOS Keychain.
+              Quill is BYO-key — nothing goes through our servers because there
+              are no servers. <strong className="text-ink font-medium">OpenAI</strong> handles the
+              Whisper transcription; <strong className="text-ink font-medium">OpenRouter</strong> handles
+              the cheap Claude Haiku route for chat &amp; note enhancement.
+              Both encrypted in macOS Keychain.
             </p>
 
-            <div className="mt-6 space-y-4">
+            <div className="mt-7 space-y-5">
               <KeyEntry
-                title="OpenAI key"
-                hint="Required — used for Whisper transcription."
+                title="OpenAI"
+                hint="Required · Whisper transcription"
                 placeholder="sk-..."
                 value={openaiInput}
                 setValue={setOpenaiInput}
                 testId="onboarding-key-openai"
               />
               <KeyEntry
-                title="Anthropic key"
-                hint="Optional — preferred for note enhancement."
-                placeholder="sk-ant-..."
-                value={anthropicInput}
-                setValue={setAnthropicInput}
-                testId="onboarding-key-anthropic"
+                title="OpenRouter"
+                hint="Recommended · cheap Haiku for chat + enhance"
+                placeholder="sk-or-..."
+                value={openrouterInput}
+                setValue={setOpenrouterInput}
+                testId="onboarding-key-openrouter"
               />
             </div>
+            <p className="dateline mt-4">
+              Anthropic key (full Sonnet) optional — add it later in Settings.
+            </p>
 
             <div className="mt-9 flex items-center gap-2">
               <button
@@ -212,17 +210,22 @@ function Bullet({
   title: string;
   body: string;
 }) {
+  // Editorial bullet — icon at full size in moss, small-caps eyebrow label
+  // beside it, body beneath. Hairline rule above each row gives the list
+  // the rhythm of a section in a journal.
   return (
-    <li className="flex gap-3">
-      <span
-        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-        style={{ background: 'oklch(var(--moss) / 0.15)', color: 'oklch(var(--moss))' }}
-      >
-        {icon}
-      </span>
-      <div>
-        <div className="font-medium">{title}</div>
-        <div className="text-sm text-ink-muted">{body}</div>
+    <li className="pt-3 first:pt-0">
+      <div className="rule mb-3 first-child:hidden" />
+      <div className="flex gap-3 items-start">
+        <span className="mt-1 shrink-0 text-moss">{icon}</span>
+        <div className="flex-1">
+          <div className="font-serif text-base leading-tight" style={{ fontWeight: 500 }}>
+            {title}
+          </div>
+          <p className="text-sm text-ink-muted leading-relaxed mt-1 max-w-prose">
+            {body}
+          </p>
+        </div>
       </div>
     </li>
   );
@@ -237,17 +240,22 @@ function PermCard({
   title: string;
   body: string;
 }) {
+  // Same vocabulary as Bullet — full-size moss icon, serif title, body
+  // beneath, separated by a hairline. No rounded card box; the rule does
+  // the structural work.
   return (
-    <div className="card p-4 flex gap-3">
-      <span
-        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-        style={{ background: 'oklch(var(--moss) / 0.15)', color: 'oklch(var(--moss))' }}
-      >
-        {icon}
-      </span>
-      <div>
-        <div className="font-medium">{title}</div>
-        <div className="text-sm text-ink-muted leading-snug mt-0.5">{body}</div>
+    <div className="pt-4 first:pt-0">
+      <div className="rule mb-4" />
+      <div className="flex gap-3 items-start">
+        <span className="mt-1 shrink-0 text-moss">{icon}</span>
+        <div className="flex-1">
+          <div className="font-serif text-base leading-tight" style={{ fontWeight: 500 }}>
+            {title}
+          </div>
+          <p className="text-sm text-ink-muted leading-relaxed mt-1 max-w-prose">
+            {body}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -270,9 +278,14 @@ function KeyEntry({
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium">{title}</label>
-        <span className="text-[11px] text-ink-soft">{hint}</span>
+      <div className="flex items-baseline justify-between gap-3">
+        <label
+          className="font-serif text-base"
+          style={{ fontWeight: 500, letterSpacing: '-0.012em' }}
+        >
+          {title}
+        </label>
+        <span className="dateline">{hint}</span>
       </div>
       <input
         type="password"
@@ -281,7 +294,7 @@ function KeyEntry({
         placeholder={placeholder}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        className="input mt-1.5"
+        className="input mt-2"
         data-testid={testId}
       />
     </div>

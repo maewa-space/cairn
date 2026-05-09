@@ -75,3 +75,29 @@ test('packaged DMG seeds all 6 built-in templates from extraResources', async ()
 
   await app.close();
 });
+
+test('packaged DMG seeds all 6 built-in recipes from extraResources', async () => {
+  test.setTimeout(45_000);
+  const app = await electron.launch({
+    executablePath: EXECUTABLE,
+    args: [`--user-data-dir=${userDataDir}-rcp`],
+  });
+  const win = await app.firstWindow();
+  await win.waitForLoadState('domcontentloaded');
+
+  await win.evaluate(async () => {
+    await window.quill.keys.set('openai', 'sk-test-bootstrap');
+    sessionStorage.setItem('quill.onboarded', '1');
+  });
+
+  const triggers = await win.evaluate(async () => {
+    const list = await window.quill.recipes.list();
+    return list.map((r) => r.trigger).sort();
+  });
+
+  expect(triggers).toEqual(
+    ['action-items', 'coach', 'decisions', 'follow-up', 'objections', 'prep'].sort(),
+  );
+
+  await app.close();
+});

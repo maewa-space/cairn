@@ -1,0 +1,17 @@
+/* Self-hosted variable fonts. Loaded once from this file so the rest of the
+ * codebase only sees CSS — no runtime network for fonts (Electron app must
+ * work offline) and no FOUT from a Google Fonts CDN.
+ *
+ * Variable fonts include all weights + italic axes in a single file each:
+ *   Inter         — body sans, axes: weight 100-900
+ *   Newsreader    — editorial serif, axes: weight 200-800, optical-size 6-72,
+ *                   italic via separate import
+ *   JetBrains Mono — datelines & code, axes: weight 100-800
+ */
+
+@import '@fontsource-variable/inter/index.css';
+/* Newsreader has an optical-size axis — use opsz so headline sizes get the
+ * display-cut letterforms automatically (font-optical-sizing: auto in body). */
+@import '@fontsource-variable/newsreader/opsz.css';
+@import '@fontsource-variable/newsreader/opsz-italic.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';

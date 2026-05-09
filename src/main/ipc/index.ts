@@ -1,28 +1,99 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { writeFile } from 'node:fs/promises';
+import { BrowserWindow, app, dialog, ipcMain, shell, systemPreferences } from 'electron';
+import { writeFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import {
   meetingsRepo,
   transcriptRepo,
   templatesRepo,
+  recipesRepo,
+  foldersRepo,
+  chatRepo,
 } from '../services/db.js';
 import { getKey, hasKey, setKey, deleteKey, type KeyName } from '../services/keychain.js';
 import { transcribe, type WhisperModel } from '../services/whisper.js';
 import { enhance } from '../services/enhancer.js';
-import type { Template, TranscriptEntry } from '@shared/types.js';
+import {
+  runChat,
+  historyToTurns,
+  type ChatScope,
+} from '../services/chat.js';
+import {
+  startAudioTap,
+  stopAudioTap,
+  isAudioTapRunning,
+} from '../services/audio-tap.js';
+import {
+  renderMeetingPdfToFile,
+  pickDefaultPageSize,
+  type PdfPageSize,
+} from '../services/pdf.js';
+import {
+  refresh as refreshCalendar,
+  getStatus as getCalendarStatus,
+  setIcsUrl as setCalendarUrl,
+  startBackgroundRefresh,
+} from '../services/calendar.js';
+import { calendarRepo } from '../services/db.js';
+import { detectTrigger, stripTrigger } from '@shared/recipes/parse.js';
+import { deriveIssue, formatIssueDate } from '@shared/issue.js';
+import type { FolderColor, Meeting, Recipe, TranscriptEntry } from '@shared/types.js';
+
+/** Broadcast a change event to every open BrowserWindow. Used so the sidebar
+ *  can listen for `meetings:changed` / `folders:changed` instead of polling
+ *  every 4 seconds. Cheap — one IPC fanout per write op. */
+function broadcast(channel: string, payload?: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send(channel, payload);
+  }
+}
 
 export function registerIpcHandlers(): void {
   // Meetings
   ipcMain.handle('meetings:list', () => meetingsRepo.list());
   ipcMain.handle('meetings:get', (_e, id: string) => meetingsRepo.get(id));
-  ipcMain.handle('meetings:create', (_e, title: string) => meetingsRepo.create(title));
+  // Plain create — calendar matching is opt-in via meetings:createWithCalendar.
+  ipcMain.handle('meetings:create', (_e, title: string) => {
+    const m = meetingsRepo.create(title);
+    broadcast('meetings:changed');
+    return m;
+  });
+  // Auto-titled create. Looks up a calendar event matching now (±10 min window),
+  // and if found, uses its title + attendees. Falls back to the supplied title
+  // (or "Untitled meeting") when nothing matches. The renderer can opt out by
+  // calling meetings:create instead.
+  ipcMain.handle(
+    'meetings:createWithCalendar',
+    (_e, fallbackTitle: string) => {
+      const match = calendarRepo.bestMatchAround();
+      const m = match
+        ? meetingsRepo.create(match.title, {
+            calendarEventId: match.id,
+            attendees: match.attendees,
+          })
+        : meetingsRepo.create(fallbackTitle);
+      broadcast('meetings:changed');
+      return m;
+    },
+  );
   ipcMain.handle('meetings:rename', (_e, id: string, title: string) => {
     meetingsRepo.rename(id, title);
+    broadcast('meetings:changed');
   });
   ipcMain.handle('meetings:saveNotes', (_e, id: string, raw: string) => {
     meetingsRepo.saveNotes(id, raw);
+    // Notes-save fires on every keystroke debounce; do not broadcast — the
+    // sidebar list rows don't show notes content.
   });
-  ipcMain.handle('meetings:end', (_e, id: string) => meetingsRepo.end(id));
-  ipcMain.handle('meetings:delete', (_e, id: string) => meetingsRepo.delete(id));
+  ipcMain.handle('meetings:end', (_e, id: string) => {
+    meetingsRepo.end(id);
+    broadcast('meetings:changed');
+  });
+  ipcMain.handle('meetings:delete', (_e, id: string) => {
+    meetingsRepo.delete(id);
+    broadcast('meetings:changed');
+  });
   ipcMain.handle('meetings:search', (_e, q: string) => meetingsRepo.search(q));
 
   // Transcript
@@ -41,6 +112,38 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('templates:delete', (_e, id: string) =>
     templatesRepo.delete(id),
   );
+
+  // System audio capture via AudioTee (Core Audio Tap).
+  ipcMain.handle('audio-tap:start', async (_e, chunkSeconds: number) => {
+    await startAudioTap(chunkSeconds);
+  });
+  ipcMain.handle('audio-tap:stop', async () => {
+    await stopAudioTap();
+  });
+  ipcMain.handle('audio-tap:isRunning', () => isAudioTapRunning());
+
+  // Permissions (macOS TCC)
+  ipcMain.handle('permissions:status', () => {
+    if (process.platform !== 'darwin') {
+      return { microphone: 'granted' as const, screen: 'granted' as const };
+    }
+    return {
+      microphone: systemPreferences.getMediaAccessStatus('microphone'),
+      screen: systemPreferences.getMediaAccessStatus('screen'),
+    };
+  });
+  ipcMain.handle('permissions:askMicrophone', async () => {
+    if (process.platform !== 'darwin') return true;
+    return await systemPreferences.askForMediaAccess('microphone');
+  });
+  ipcMain.handle('permissions:openSystemSettings', (_e, pane: 'mic' | 'screen') => {
+    if (process.platform !== 'darwin') return;
+    const url =
+      pane === 'mic'
+        ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'
+        : 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
+    shell.openExternal(url);
+  });
 
   // Keys
   ipcMain.handle('keys:has', (_e, name: KeyName) => hasKey(name));
@@ -85,13 +188,254 @@ export function registerIpcHandlers(): void {
         filters: [{ name: 'Markdown', extensions: ['md'] }],
       });
       if (result.canceled || !result.filePath) return null;
-      await writeFile(result.filePath, args.content, 'utf-8');
-      return result.filePath;
+      try {
+        await writeFile(result.filePath, args.content, 'utf-8');
+        return result.filePath;
+      } catch (err) {
+        // Common: read-only volume, disk full, or path no longer writable.
+        // Throwing here gives the renderer a real Error message instead of
+        // a generic IPC failure swallowed by an unattached promise.
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[ipc] dialog:saveMarkdown writeFile failed:', err);
+        throw new Error(`Could not write ${result.filePath}: ${msg}`);
+      }
     },
   );
   ipcMain.handle('dialog:revealInFinder', async (_e, path: string) => {
     shell.showItemInFolder(path);
   });
+
+  // Export meeting as a PDF — Save dialog flow.
+  ipcMain.handle(
+    'dialog:savePdf',
+    async (event, args: { meetingId: string; suggestedName?: string }) => {
+      const meeting = meetingsRepo.get(args.meetingId);
+      if (!meeting) throw new Error(`Meeting ${args.meetingId} not found.`);
+      const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      const safeName = sanitizeFileName(args.suggestedName ?? meeting.title);
+      const result = await dialog.showSaveDialog(win!, {
+        title: 'Export meeting as PDF',
+        defaultPath: `${safeName}.pdf`,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (result.canceled || !result.filePath) return null;
+      try {
+        await renderMeetingPdfToFile(result.filePath, buildPdfInput(meeting));
+        return result.filePath;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[ipc] dialog:savePdf failed:', err);
+        throw new Error(`Could not write ${result.filePath}: ${msg}`);
+      }
+    },
+  );
+
+  // Share meeting via the macOS share sheet — renders PDF to a temp file and
+  // opens it (Preview on macOS, where the user clicks the native Share button).
+  // Cleanup is deferred 5 minutes — long enough for the user to drag-drop the
+  // file out of Preview if they want to.
+  ipcMain.handle(
+    'dialog:sharePdf',
+    async (_e, args: { meetingId: string }) => {
+      const meeting = meetingsRepo.get(args.meetingId);
+      if (!meeting) throw new Error(`Meeting ${args.meetingId} not found.`);
+      const safeName = sanitizeFileName(meeting.title);
+      const stamp = `${Date.now()}-${randomBytes(3).toString('hex')}`;
+      const tempPath = join(tmpdir(), `quill-${safeName}-${stamp}.pdf`);
+      try {
+        await renderMeetingPdfToFile(tempPath, buildPdfInput(meeting));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[ipc] dialog:sharePdf render failed:', err);
+        throw new Error(`Could not prepare PDF for sharing: ${msg}`);
+      }
+      const openErr = await shell.openPath(tempPath);
+      if (openErr) {
+        console.error('[ipc] dialog:sharePdf openPath failed:', openErr);
+        await unlink(tempPath).catch(() => {});
+        throw new Error(`Could not open PDF: ${openErr}`);
+      }
+      // Cleanup deferred so the user has time to share/drag.
+      setTimeout(
+        () => {
+          unlink(tempPath).catch(() => {});
+        },
+        5 * 60 * 1000,
+      );
+      return tempPath;
+    },
+  );
+
+  // Calendar (local-first ICS feed)
+  ipcMain.handle('calendar:status', () => getCalendarStatus());
+  ipcMain.handle('calendar:setUrl', (_e, url: string) => {
+    setCalendarUrl(url);
+    // Trigger an immediate refresh so the user sees their events right after
+    // pasting the URL. Kick the background loop too — startBackgroundRefresh
+    // is idempotent and replaces the prior interval if it was running.
+    if (url.trim()) {
+      startBackgroundRefresh();
+    }
+    return getCalendarStatus();
+  });
+  ipcMain.handle('calendar:refresh', async () => {
+    await refreshCalendar();
+    return getCalendarStatus();
+  });
+  ipcMain.handle('calendar:upcoming', () => calendarRepo.upcoming(new Date(), 5));
+  ipcMain.handle('calendar:matchNow', () => calendarRepo.bestMatchAround());
+
+  // Folders
+  ipcMain.handle('folders:list', () => foldersRepo.list());
+  ipcMain.handle('folders:create', (_e, name: string, color: FolderColor) => {
+    const f = foldersRepo.create(name, color ?? null);
+    broadcast('folders:changed');
+    return f;
+  });
+  ipcMain.handle('folders:rename', (_e, id: string, name: string) => {
+    foldersRepo.rename(id, name);
+    broadcast('folders:changed');
+  });
+  ipcMain.handle('folders:setColor', (_e, id: string, color: FolderColor) => {
+    foldersRepo.setColor(id, color ?? null);
+    broadcast('folders:changed');
+  });
+  ipcMain.handle('folders:delete', (_e, id: string) => {
+    foldersRepo.delete(id);
+    broadcast('folders:changed');
+    broadcast('meetings:changed'); // contained meetings became unfiled
+  });
+  ipcMain.handle('folders:meetingsIn', (_e, id: string) =>
+    foldersRepo.meetingsIn(id),
+  );
+  ipcMain.handle(
+    'meetings:moveToFolder',
+    (_e, id: string, folderId: string | null) => {
+      meetingsRepo.moveToFolder(id, folderId);
+      broadcast('meetings:changed');
+    },
+  );
+  ipcMain.handle('meetings:listInFolder', (_e, id: string) =>
+    meetingsRepo.listInFolder(id),
+  );
+  ipcMain.handle('meetings:listUnfiled', () => meetingsRepo.listUnfiled());
+
+  // Recipes
+  ipcMain.handle('recipes:list', () => recipesRepo.list());
+  ipcMain.handle('recipes:get', (_e, id: string) => recipesRepo.get(id));
+  ipcMain.handle('recipes:save', (_e, r: Recipe) => recipesRepo.save(r));
+  ipcMain.handle('recipes:delete', (_e, id: string) => recipesRepo.delete(id));
+
+  // Chat
+  ipcMain.handle(
+    'chat:history',
+    (
+      _e,
+      args: { meetingId: string | null; folderId: string | null },
+    ) => {
+      if (args.meetingId) return chatRepo.forMeeting(args.meetingId);
+      if (args.folderId) return chatRepo.forFolder(args.folderId);
+      return chatRepo.global();
+    },
+  );
+
+  ipcMain.handle(
+    'chat:clear',
+    (
+      _e,
+      args: { meetingId: string | null; folderId: string | null },
+    ) => {
+      if (args.meetingId) chatRepo.clearForMeeting(args.meetingId);
+      else if (args.folderId) chatRepo.clearForFolder(args.folderId);
+      else chatRepo.clearGlobal();
+    },
+  );
+
+  ipcMain.handle(
+    'chat:send',
+    async (
+      _e,
+      args: {
+        meetingId: string | null;
+        folderId: string | null;
+        message: string;
+        recipeId?: string | null;
+      },
+    ) => {
+      const { meetingId, folderId } = args;
+      let cleanedMessage = args.message.trim();
+      let recipe: Recipe | null = args.recipeId
+        ? recipesRepo.get(args.recipeId)
+        : null;
+
+      if (!recipe) {
+        const trig = detectTrigger(cleanedMessage);
+        if (trig) {
+          const found = recipesRepo.getByTrigger(trig);
+          if (found) {
+            recipe = found;
+            cleanedMessage = stripTrigger(cleanedMessage, trig);
+            if (!cleanedMessage) cleanedMessage = `Apply the ${found.name} recipe.`;
+          }
+        }
+      }
+
+      const scope: ChatScope = resolveScope(meetingId, folderId);
+      const history = meetingId
+        ? chatRepo.forMeeting(meetingId)
+        : folderId
+          ? chatRepo.forFolder(folderId)
+          : chatRepo.global();
+
+      const userMsg = chatRepo.append({
+        meetingId,
+        folderId,
+        role: 'user',
+        content: args.message,
+        recipeId: recipe?.id ?? null,
+        inputTokens: null,
+        outputTokens: null,
+        model: null,
+      });
+
+      try {
+        const result = await runChat({
+          scope,
+          history: historyToTurns(history),
+          userMessage: cleanedMessage,
+          recipe,
+          anthropicKey: getKey('anthropic'),
+          openaiKey: getKey('openai'),
+          openrouterKey: getKey('openrouter'),
+        });
+        const assistantMsg = chatRepo.append({
+          meetingId,
+          folderId,
+          role: 'assistant',
+          content: result.content,
+          recipeId: recipe?.id ?? null,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          model: result.modelUsed,
+        });
+        return { user: userMsg, assistant: assistantMsg, recipe };
+      } catch (err) {
+        // Persist a system-rendered error so the user sees what happened.
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const assistantMsg = chatRepo.append({
+          meetingId,
+          folderId,
+          role: 'assistant',
+          content: `_Error:_ ${errMsg}`,
+          recipeId: recipe?.id ?? null,
+          inputTokens: null,
+          outputTokens: null,
+          model: null,
+        });
+        return { user: userMsg, assistant: assistantMsg, recipe, error: errMsg };
+      }
+    },
+  );
 
   // Enhancement
   ipcMain.handle(
@@ -113,7 +457,69 @@ export function registerIpcHandlers(): void {
         openrouterKey: getKey('openrouter'),
       });
       meetingsRepo.setEnhanced(args.meetingId, result.markdown, args.templateId);
+      broadcast('meetings:changed');
       return result;
     },
   );
+}
+
+const GLOBAL_CHAT_MEETINGS = 25;
+
+function sanitizeFileName(name: string): string {
+  return name.replace(/[^A-Za-z0-9._ -]/g, '_').trim() || 'meeting';
+}
+
+function buildPdfInput(meeting: Meeting): {
+  meeting: Meeting;
+  issueLabel: string;
+  dateLabel: string;
+  pageSize: PdfPageSize;
+} {
+  const total = meetingsRepo.list().length;
+  const ranking = meetingsRepo
+    .list()
+    .findIndex((m) => m.id === meeting.id);
+  // Issue number reflects this meeting's position in chronological order.
+  // list() returns newest-first, so the oldest meeting is the highest index.
+  const indexFromOldest =
+    ranking < 0 ? total : Math.max(1, total - ranking);
+  const issue = deriveIssue(indexFromOldest);
+  const issueLabel = `QUILL — ${issue.combined}`.toUpperCase();
+  const dateLabel = formatIssueDate(
+    meeting.startedAt ? new Date(meeting.startedAt) : new Date(),
+  ).toUpperCase();
+  let locale = 'en-US';
+  try {
+    locale = app.getLocale() || 'en-US';
+  } catch {
+    /* main process not yet ready in some test paths */
+  }
+  return {
+    meeting,
+    issueLabel,
+    dateLabel,
+    pageSize: pickDefaultPageSize(locale),
+  };
+}
+
+function resolveScope(
+  meetingId: string | null,
+  folderId: string | null,
+): ChatScope {
+  if (meetingId) {
+    const meeting = meetingsRepo.get(meetingId);
+    if (!meeting) throw new Error(`Meeting ${meetingId} not found.`);
+    return { kind: 'meeting', meeting };
+  }
+  if (folderId) {
+    const folder = foldersRepo.get(folderId);
+    if (!folder) throw new Error(`Folder ${folderId} not found.`);
+    const meetings = meetingsRepo
+      .listInFolder(folderId)
+      .map((m) => meetingsRepo.get(m.id))
+      .filter((m): m is NonNullable<typeof m> => m !== null);
+    return { kind: 'folder', folderName: folder.name, meetings };
+  }
+  const meetings = meetingsRepo.recent(GLOBAL_CHAT_MEETINGS);
+  return { kind: 'global', meetings };
 }

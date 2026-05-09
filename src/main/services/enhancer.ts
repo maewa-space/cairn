@@ -99,10 +99,14 @@ export async function enhance(opts: EnhanceOptions): Promise<EnhanceResult> {
 function pickProviderOrder(
   opts: EnhanceOptions,
 ): Array<'anthropic' | 'openai' | 'openrouter'> {
+  // OpenRouter first when set: it routes to a cheap-but-capable model
+  // (Claude Haiku 4.5) and consolidates billing, so users who set it
+  // explicitly want it preferred. Anthropic and OpenAI remain as fallbacks
+  // when no OpenRouter key is configured.
   const defaults: Array<'anthropic' | 'openai' | 'openrouter'> = [
+    'openrouter',
     'anthropic',
     'openai',
-    'openrouter',
   ];
   if (!opts.preferred) return defaults;
   return [opts.preferred, ...defaults.filter((p) => p !== opts.preferred)];

@@ -1,9 +1,23 @@
-import { app, BrowserWindow, shell, session } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { registerIpcHandlers } from './ipc/index.js';
-import { seedTemplates } from './services/db.js';
+import { seedTemplates, seedRecipes } from './services/db.js';
+import { startBackgroundRefresh as startCalendarRefresh } from './services/calendar.js';
 import { loadBuiltInTemplates } from '@shared/templates/loader-node.js';
+import { loadBuiltInRecipes } from '@shared/recipes/loader-node.js';
+
+// `electron-audio-loopback` ships CommonJS; load it via createRequire from
+// our ESM main bundle. The package wires up Core Audio tap flags + the
+// `setDisplayMediaRequestHandler` for us, and exposes the renderer-side
+// `getLoopbackAudioMediaStream()` we'll use instead of raw getDisplayMedia.
+const require = createRequire(import.meta.url);
+const { initMain } = require('electron-audio-loopback');
+
+// Must be called before `app.whenReady()` — appends the right Chromium
+// feature flags (MacLoopbackAudioForScreenShare + Sck/Catap override).
+initMain({ forceCoreAudioTap: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -14,8 +28,11 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
-    minWidth: 940,
-    minHeight: 620,
+    // Responsive layout supports down to ~480px wide; below 900px the sidebar
+    // collapses to icons and the meeting page folds the right pane behind a
+    // tab. Floor at 420 to keep menus + dialogs sensible.
+    minWidth: 420,
+    minHeight: 540,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#fafaf7',
     show: false,
@@ -48,26 +65,9 @@ function createWindow(): void {
     },
   );
 
-  // getDisplayMedia routing.
-  // On macOS 14.4+, useSystemPicker: true defers to the native ScreenCaptureKit
-  // picker, which exposes the "Include audio" toggle that actually taps system
-  // audio. The handler still serves as a fallback (Windows uses 'loopback';
-  // older macOS just gets video).
-  if ('setDisplayMediaRequestHandler' in mainWindow.webContents.session) {
-    session.defaultSession.setDisplayMediaRequestHandler(
-      (_request, callback) => {
-        import('electron').then(({ desktopCapturer }) => {
-          desktopCapturer
-            .getSources({ types: ['screen'] })
-            .then((sources) => {
-              callback({ video: sources[0], audio: 'loopback' });
-            })
-            .catch(() => callback({}));
-        });
-      },
-      { useSystemPicker: process.platform === 'darwin' },
-    );
-  }
+  // System audio loopback handler is registered by electron-audio-loopback's
+  // initMain() (see top of file). Renderer calls getLoopbackAudioMediaStream()
+  // which IPC-handshakes with that handler.
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -93,7 +93,22 @@ app.whenReady().then(() => {
     console.error('Template seeding failed:', err);
   }
 
+  try {
+    const recipes = loadBuiltInRecipes(
+      app.isPackaged
+        ? join(process.resourcesPath, 'recipes')
+        : join(__dirname, '../../src/shared/recipes'),
+    );
+    seedRecipes(recipes);
+  } catch (err) {
+    console.error('Recipe seeding failed:', err);
+  }
+
   registerIpcHandlers();
+  // Background calendar refresh — no-ops if no ICS URL is configured. Once
+  // the user pastes a URL via Settings the IPC handler triggers a fresh
+  // start so they don't have to wait for the next interval tick.
+  startCalendarRefresh();
   createWindow();
 
   app.on('activate', () => {

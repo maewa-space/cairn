@@ -1,5 +1,6 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { Speaker, TranscriptEntry } from '@shared/types.js';
+import { isHallucination } from '@shared/hallucination.js';
 
 interface QueuedChunk {
   meetingId: string;
@@ -15,11 +16,14 @@ export interface UseChunkedTranscriberOptions {
   language?: string;
 }
 
-const MIN_BYTES = 1500; // skip tiny no-audio chunks
+// Whisper rejects very small chunks (< ~3 KB) as "Invalid file format" —
+// fragmented MP4 / webm headers without enough audio payload.
+const MIN_BYTES = 4000;
 
 export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
   const queueRef = useRef<QueuedChunk[]>([]);
-  const inFlight = useRef(0);
+  const inFlightRef = useRef(0);
+  const [pending, setPending] = useState(0);
   const onEntryRef = useRef(opts.onEntry);
   const onErrorRef = useRef(opts.onError);
   const languageRef = useRef(opts.language);
@@ -28,12 +32,18 @@ export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
   onErrorRef.current = opts.onError;
   languageRef.current = opts.language;
 
+  const updatePending = () => {
+    setPending(inFlightRef.current + queueRef.current.length);
+  };
+
   const drain = useCallback(async () => {
-    while (queueRef.current.length > 0 && inFlight.current < 2) {
+    while (queueRef.current.length > 0 && inFlightRef.current < 2) {
       const next = queueRef.current.shift()!;
-      inFlight.current++;
+      inFlightRef.current++;
+      updatePending();
       void process(next).finally(() => {
-        inFlight.current--;
+        inFlightRef.current--;
+        updatePending();
         if (queueRef.current.length > 0) void drain();
       });
     }
@@ -41,9 +51,21 @@ export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
 
   const process = async (chunk: QueuedChunk) => {
     try {
-      if (chunk.blob.size < MIN_BYTES) return;
+      if (chunk.blob.size < MIN_BYTES) {
+        console.debug(
+          `[transcribe] skipped tiny chunk (${chunk.blob.size}b, type=${chunk.blob.type || 'none'})`,
+        );
+        return;
+      }
       const buf = await chunk.blob.arrayBuffer();
-      const ext = chunk.blob.type.includes('mp4') ? 'm4a' : 'webm';
+      // Map MediaRecorder mime → file extension Whisper accepts. Default to
+      // webm because it's our preferred encoder format and chunks remain
+      // valid even when timesliced (cluster-based segmentation).
+      const type = chunk.blob.type;
+      let ext = 'webm';
+      if (type.includes('mp4')) ext = 'mp4';
+      else if (type.includes('ogg')) ext = 'ogg';
+      else if (type.includes('wav')) ext = 'wav';
       const filename = `chunk-${chunk.speaker}-${chunk.startedAtMs}.${ext}`;
       const text = await window.quill.whisper.transcribe({
         audio: buf,
@@ -53,6 +75,10 @@ export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
       });
       const trimmed = text.trim();
       if (!trimmed) return;
+      if (isHallucination(trimmed)) {
+        console.debug(`[transcribe] dropped hallucination (${chunk.speaker}):`, trimmed);
+        return;
+      }
       const entry = await window.quill.transcript.append({
         meetingId: chunk.meetingId,
         speaker: chunk.speaker,
@@ -63,6 +89,10 @@ export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
       onEntryRef.current(entry);
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
+      console.warn(
+        `[transcribe] chunk failed (size=${chunk.blob.size}b, type=${chunk.blob.type || 'none'}, speaker=${chunk.speaker}):`,
+        err.message,
+      );
       onErrorRef.current?.(err);
     }
   };
@@ -70,10 +100,11 @@ export function useChunkedTranscriber(opts: UseChunkedTranscriberOptions) {
   const enqueue = useCallback(
     (chunk: QueuedChunk) => {
       queueRef.current.push(chunk);
+      updatePending();
       void drain();
     },
     [drain],
   );
 
-  return { enqueue };
+  return { enqueue, pending };
 }

@@ -1,140 +1,223 @@
 # Quill — Handover for next session
 
-> **Picked-up cold? Read this top-to-bottom, then pick a sprint and start.**
+> **Picked-up cold? Read this top-to-bottom.** PDF export, responsive layout,
+> and calendar integration all shipped this session. The "what shipped today"
+> section below is the source of truth.
 > Project: open-source Granola.ai clone (Electron + React + TypeScript).
 > Repo: https://github.com/maewa-space/quill — local: `/Users/amadeus/Claude-projects/notetaker/`.
 
 ---
 
-## State as of last session (2026-05-08)
+## State as of 2026-05-08 (end of session)
 
-**v0.1 shipped.** DMG packaged at `release/Quill-0.1.0-arm64.dmg` (gitignored), installed in `/Applications/Quill.app`. App icon = italic serif "Q" on warm paper.
+**Everything ships green.**
 
-**Live-verified end-to-end** (with real OpenAI key, traces off):
-- `tests/e2e/_live-pipeline.spec.ts` — Whisper transcription of two real WAV chunks (different voices, tagged system/mic) → DB persistence → GPT-4o enhancement with User Interview template → restart → meeting + enhanced notes survive. Both tests pass in ~17s.
-- Earlier `_live-smoke.spec.ts` validated the same path with synthetic `say`-generated audio.
+- **71 unit tests** pass (vitest) — was 54 + 11 PDF + 6 ICS
+- **21 mocked e2e** pass (playwright + electron) — was 19, +PDF save + share
+- **3 DMG smoke** pass against the packaged app
+- **typecheck** clean (`tsc --noEmit` on both `tsconfig.node.json` and `tsconfig.web.json`)
+- **production build** clean (`pnpm build`; ~1.25 MB JS, ~50 KB CSS, fonts self-hosted as woff2 chunks)
 
-**Coverage:** 28 unit + 15 mocked e2e + 3 live (skipped without env keys). All green.
-
-**Known gap:** Real macOS Mic + Screen Recording permission grant + native ScreenCaptureKit picker click are still user-driven (can't be automated). The pipeline downstream of capture is fully verified.
-
----
-
-## Sprint 1 — Per-meeting AI Chat + `/` Recipes
-
-> Highest impact-to-effort ratio. Every Granola review calls these out. Reuses the existing Anthropic/OpenAI/OpenRouter pipe.
-
-### Why
-- "Calm to take notes... I don't have to constantly see the transcript" — Granola's chat sits where Quill currently shows the transcript.
-- "Recipes are a 10X feature" — `/`-triggered prompt templates with grounding from the current (or all) meetings.
-
-### DB schema delta (`src/main/services/db.ts`)
-```sql
-CREATE TABLE chat_messages (
-  id TEXT PRIMARY KEY,
-  meeting_id TEXT REFERENCES meetings(id) ON DELETE CASCADE,  -- null = global chat
-  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-  content TEXT NOT NULL,
-  recipe_id TEXT,
-  created_at TEXT NOT NULL,
-  input_tokens INTEGER,
-  output_tokens INTEGER,
-  model TEXT
-);
-CREATE INDEX idx_chat_meeting ON chat_messages(meeting_id, created_at);
-
-CREATE TABLE recipes (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  trigger TEXT NOT NULL UNIQUE,         -- e.g. 'coach', 'follow-up'
-  description TEXT NOT NULL,
-  scope TEXT NOT NULL CHECK (scope IN ('meeting', 'global')),
-  prompt TEXT NOT NULL,
-  built_in INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-```
-
-### Built-in recipes (seed in main on startup, similar to templates)
-- `/coach` (meeting) — *"Be my coach. What did I miss? What should I have asked? What did I do well?"*
-- `/follow-up` (meeting) — *"Draft a follow-up email to the other person, casual professional tone, with next steps."*
-- `/action-items` (meeting) — *"Extract a clean action item list with owners + due dates if mentioned."*
-- `/decisions` (meeting) — *"Summarize all decisions made in this meeting in one bullet list."*
-- `/objections` (meeting) — *"What objections were raised? How were they handled? What's still open?"*
-- `/prep` (global) — *"Prep me for my next meeting with this person — pull last 3 meetings with them."*
-
-Recipes live in `src/shared/recipes/*.md` with the same front-matter parser pattern as templates (`src/shared/templates/parse.ts`).
-
-### Files to create
-- `src/main/services/chat.ts` — runs chat completions with grounding (current meeting transcript or — for global scope — N most recent meetings via embedding-less keyword pre-filter).
-- `src/main/services/recipes.ts` — CRUD + built-in seed loader.
-- `src/main/ipc/index.ts` — add: `chat:send`, `chat:history`, `chat:clear`, `recipes:list`, `recipes:save`, `recipes:delete`.
-- `src/preload/index.ts` — expose `window.quill.chat.*` and `window.quill.recipes.*`.
-- `src/renderer/src/components/meeting/MeetingChat.tsx` — chat panel.
-- `src/renderer/src/components/chat/RecipeMenu.tsx` — `/`-triggered popup.
-- `src/renderer/src/components/chat/MessageList.tsx`, `Composer.tsx`.
-
-### UX (Granola-style)
-Replace the right-pane TranscriptStream with a tabbed pane:
-- **Default tab: Chat** — composer at bottom, message list above. `/` in composer pops the recipe menu.
-- **Toggle tab: Transcript** — current TranscriptStream, collapsed by default per Granola pattern.
-
-For global chat (cross-meeting), add a route `/chat` accessible from the sidebar — same component, scope = `global`, grounds against last 25 meetings.
-
-### Test plan
-- **Unit**: `chat.ts` prompt assembly with single + global scope, recipe trigger parsing, `recipes.ts` CRUD, message persistence.
-- **E2E mocked**: Send a message, verify response renders. Type `/coach` → recipe menu appears → click → assistant message uses recipe prompt (verify by mocking fetch and checking the request body).
-- **Live**: Add to `_live-pipeline.spec.ts` — after enhance, send a chat message "What's the biggest pain point?", expect response mentioning "search".
-
-### Acceptance
-- [ ] Chat persists across app restart
-- [ ] `/recipe-name` triggers the right prompt
-- [ ] Global chat queries last 25 transcripts
-- [ ] All 6 built-in recipes seeded on first run
-- [ ] Recipe CRUD UI in `/templates` page (add a tab "Recipes" alongside templates)
-- [ ] Live test green
+The packaged `.app` is signed `space.maewa.quill` (not the default `Electron` identifier) and ships an AudioTee Swift binary as `extraResources` for system audio. Runs offline.
 
 ---
 
-## Sprint 2 — Folders + folder-scoped chat
+## What shipped today (2026-05-08, second session)
 
-> The DB column `meetings.folder_id` already exists from v0.1. Just need a folders table, UI, and chat scoping.
+### PDF + Markdown export with native sharing
 
-### DB schema delta
-```sql
-CREATE TABLE folders (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  color TEXT,                            -- 'moss' | 'sage' | 'amber' | 'stone' | null
-  created_at TEXT NOT NULL
-);
--- meetings.folder_id already exists; ensure FK is enforced via PRAGMA foreign_keys.
-```
+- `src/main/services/pdf-template.ts` renders an editorial HTML document
+  (masthead, serif title, drop cap, mono dateline, italic Newsreader footer)
+  with Newsreader/Inter/JetBrains Mono embedded as base64 woff2. Cache hits
+  the file system once at first call.
+- `src/main/services/pdf.ts` spawns a hidden BrowserWindow, loads the HTML
+  via a temp file, awaits `document.fonts.ready` + 120 ms settle, and calls
+  `printToPDF` with `displayHeaderFooter: true`. European locales get A4
+  with 18 mm margins; everywhere else gets Letter with 0.75 in margins.
+- New IPC: `dialog:savePdf` (Save dialog → render → write), `dialog:sharePdf`
+  (render to `os.tmpdir()` → `shell.openPath` → 5-min deferred unlink).
+- `MeetingActions` got an "Export →" submenu (PDF / Markdown) plus a separate
+  "Share…" item. New testids: `export-submenu`, `export-pdf`, `export-md`,
+  `share-pdf`. Existing folder-submenu pattern preserved.
+- Shared utilities lifted to `src/shared/`: `markdown.ts`, `issue.ts`,
+  `meeting-export.ts`. Old renderer imports re-export from there.
+- 11 new unit tests in `tests/unit/pdf-template.test.ts`. Two new e2e tests
+  in `meeting-actions.spec.ts` exercise the real `printToPDF` pipeline and
+  the share path with a stubbed `shell.openPath`.
 
-### Files to create
-- `src/main/services/folders.ts` — CRUD.
-- `src/main/ipc/index.ts` — `folders:list`, `folders:create`, `folders:rename`, `folders:delete`, `meetings:moveToFolder`.
-- `src/preload/index.ts` — `window.quill.folders.*`.
-- `src/renderer/src/components/sidebar/FolderTree.tsx` — collapsible folder section in sidebar.
-- Update `src/renderer/src/components/Sidebar.tsx` to render folders above meetings, with click-to-filter.
-- Update `MeetingActions.tsx` with "Move to folder" submenu.
+### Window responsiveness + mobile widths
 
-### UX
-- **Sidebar**: above "Recent" — a "Folders" section. Each folder = expandable row showing meetings inside. "All meetings" + "Unfiled" pseudo-folders at the top.
-- **Folder click**: filters the meeting list to that folder. Sidebar also shows a folder-scoped chat icon (links to `/chat?folder=:id`).
-- **Right-click on a meeting** (or kebab menu): "Move to folder" → submenu with all folders + "Remove from folder".
-- **Color**: optional accent color shown as a small dot next to the folder name.
+- New hook `useMediaQuery` and shared `BREAKPOINTS` (`compactSidebar` 900px,
+  `narrowBody` 820px, `mobile` 560px).
+- `Shell` renders one of three layouts: full sidebar (≥900px), 64-px icon
+  rail with overlay drawer (560–900px), or stacked-with-bottom-bar mobile
+  layout (<560px).
+- `Sidebar` factored into `CompactRail` + `SidebarBody`; the drawer animates
+  in via the existing `fade-up` keyframe and is closed on route change /
+  outside click.
+- Meeting page top bar wraps via `flex-wrap` so RecordControls + EnhanceBar
+  + actions never clip. Below 820 px the right pane folds behind a "Notes /
+  Chat & transcript" tab toggle (testid `body-tabs`, `body-tab-notes`,
+  `body-tab-side`).
+- Routes (`home`, `meeting`, `settings`, `templates`, `onboarding`) all use
+  `px-5 sm:px-10`. `Masthead` wraps at narrow widths.
+- BrowserWindow `minWidth` lowered from 940 → 420, `minHeight` 620 → 540.
 
-### Test plan
-- Unit: folder CRUD, meeting reassignment, cascade behavior on folder delete (meetings remain, folder_id → null).
-- E2E: create folder via sidebar UI, drag/click a meeting into it, verify sidebar filters, delete folder verifies meetings are unfiled (not deleted).
+### Calendar integration + auto-titling
 
-### Acceptance
-- [ ] Create / rename / delete folder
-- [ ] Move meeting into / out of folder via UI
-- [ ] Sidebar folder filter works
-- [ ] Folder delete preserves meetings (foreign key behavior verified by test)
-- [ ] Folder-scoped chat (depends on Sprint 1) groundings restricted to that folder's meetings
+- Local-first: paste an ICS feed URL (Google, Outlook, iCloud, Fastmail,
+  Calendly all expose one) or a local `.ics` file path. **No OAuth.**
+- `src/shared/ics.ts` — minimal RFC 5545 VEVENT parser: line unfolding,
+  DATE-TIME (UTC + local) and DATE-only forms, ATTENDEE/ORGANIZER with CN
+  display names, escaped commas/semicolons/newlines. Skips RRULE expansion
+  (recurring events ship as individual VEVENTs from most feeds anyway).
+- `src/main/services/calendar.ts` — fetches the URL via `fetch()` (or
+  `readFile` for `file://` and bare paths), parses, replaces the
+  `calendar_events` table for source `primary` in one transaction. Drops
+  events that ended >7 days ago. Background refresh every 30 minutes.
+- New schema: `calendar_events` table + `meetings.calendar_event_id` and
+  `meetings.attendees` (JSON array) columns added via idempotent
+  `POST_SCHEMA_MIGRATIONS`.
+- New IPC: `calendar:status`, `calendar:setUrl`, `calendar:refresh`,
+  `calendar:upcoming`, `calendar:matchNow`, `meetings:createWithCalendar`.
+- Settings page got a "Calendar" section with `CalendarCard`: paste URL,
+  Save, Refresh, last-sync line, error surface. Testids: `calendar-url-input`,
+  `calendar-url-save`, `calendar-refresh`, `calendar-feedback`.
+- The "Start meeting" CTAs in `home` and `Sidebar` call
+  `meetings.createWithCalendar(...)` so an active calendar event auto-fills
+  the title and attendees. Attendee chips render in the meeting header
+  dateline (testid `meeting-attendees`).
+- 6 new unit tests in `tests/unit/ics.test.ts`.
+
+---
+
+## What shipped earlier today (first session)
+
+### Editorial design revamp — 6 phases + 6 quick wins
+
+The app no longer reads as a generic Tailwind/shadcn template. Visual direction is **editorial newspaper / journal** — masthead chrome, hairline rule-lines, mono datelines, italic-Newsreader microcopy, drop cap on enhanced notes, moss left-rule for active sidebar/folder/template rows.
+
+Key utilities now in `src/renderer/src/styles/global.css` (use these, don't reinvent):
+
+| Class | Use |
+|---|---|
+| `.eyebrow` | Tracked uppercase Inter at 11px, `text-ink-soft`. Section labels. |
+| `.dateline` | Mono small-caps with tabular-nums. Meta lines like "WED · 14:02 · 38 MIN · 4 VOICES". |
+| `.microcopy` | Italic Newsreader `text-ink-muted`. Ephemeral states ("polishing…", "thinking…", "An empty shelf — for now.") |
+| `.rule` / `.rule-vert` | 1px hairlines bound to `--edge` token. |
+| `.card-elevated` | Single soft shadow + hover lift. (Plain `.card` left unchanged so the e2e selector at `record-flow.spec.ts:88` still matches.) |
+| `.editor-prose--enhanced` | Modifier on `EnhancedView` that turns on the moss drop-cap on the first paragraph. |
+
+Reusable component: `<Masthead left="Quill — Vol. I · Issue 23" right="Wed, May 8, 2026" />` at `src/renderer/src/components/Masthead.tsx`. Used on Home, Settings, Onboarding.
+
+Issue derivation: `deriveIssue(meetingCount)` and `formatIssueDate()` at `src/renderer/src/lib/issue.ts`. Sidebar foot shows `Vol. I · Issue N` in italic Newsreader as a quiet delight.
+
+### Self-hosted variable fonts
+
+Newsreader, Inter, JetBrains Mono ship via `@fontsource-variable/*` packages. **Before today the app was rendering Georgia + system-ui as fallback** — fonts were referenced in CSS but never imported. All three are now in `src/renderer/src/styles/fonts.css` and bound to `--font-{serif,sans,mono}` tokens.
+
+### Motion via the `motion` package (~5KB tree-shaken)
+
+Three keyframes in `src/renderer/src/styles/tokens.css`: `pulse-soft`, `breathe`, `fade-up`.
+
+Active animations:
+- `RedDot` 3-layer pulsing dot (live recording indicator) in `RecordControls.tsx`
+- Breathe on chat thinking dot + meeting-load skeleton
+- motion-one stagger fade-up on home meeting list mount
+- Slide on Raw ↔ Enhanced view toggle in `meeting.tsx`
+- Soft fade on chat-message append in `MessageList.tsx`
+- Soft fade on transcript-entry append in `TranscriptStream.tsx`
+- Route fade-up in `Shell.tsx` on every pathname change
+
+`@media (prefers-reduced-motion: reduce)` global rule in `global.css` collapses every animation to ~0ms. Verified against macOS System Settings → Accessibility → Display → Reduce motion.
+
+Import path: `import { animate, inView, stagger } from 'motion';` (the `motion/dom` subpath isn't a valid types entry in v12).
+
+### OpenRouter is now the default-preferred provider
+
+Both `enhancer.ts` and `chat.ts` reorder their provider chain to `[openrouter, anthropic, openai]`. Default OpenRouter model is `anthropic/claude-haiku-4.5` — cheap-but-capable. Anthropic and OpenAI remain as fallbacks when no OpenRouter key is set.
+
+Settings + onboarding copy was updated to lead with OpenRouter as recommended; Anthropic surfaces only in Settings as the optional full-Sonnet upgrade.
+
+New unit test in `tests/unit/enhancer.test.ts` locks "OpenRouter preferred when all three keys set" in.
+
+### Onboarding revised
+
+- Step 1: editorial headline matching home ("Note every meeting. *Polish it later.*"); bullets restyled with full-size moss icons + serif titles + rule-line separators.
+- Step 2: **fixed inaccurate copy.** Was telling users to grant Screen Recording, but Quill uses AudioTee Core Audio Tap which needs the macOS Sequoia "System Audio Recording" permission (split out from Screen Recording). New copy explicitly references that flow.
+- Step 3: leads with OpenRouter as recommended cheap path.
+
+E2E test `tests/e2e/onboarding-flow.spec.ts` updated to match — was asserting on old text/testids.
+
+### App icon redesigned (v3 — current)
+
+Iterated through three directions in successive sessions:
+
+1. **v1**: glossy iOS-26 moss-gradient squircle with white italic Q (initial).
+2. **v2**: warm paper background, hairline moss frame, oversized italic Newsreader Q in moss (editorial first pass — user rejected as "weird green" + "boring").
+3. **v3 (current)**: solid forest squircle (`#1f3a2c → #11241c`), cream Playfair Display 900 Q at full bleed. Picked from a 12-design portfolio + 10-color palette review (`scripts/icon-options.mjs`, `scripts/icon-colors.mjs`, output cached at `~/Downloads/quill-icon-options/`).
+
+The brand `--moss` token in `tokens.css` was simultaneously shifted from `52% 0.085 145` (acidic spring green) → `31% 0.06 158` (deep forest, slightly bluer) so the Dock icon and every in-app accent (drop cap, active sidebar/folder rule, chat user-message rule, transcript stream border, onboarding bullet icons) all share the same green. Dark-mode `--moss` follows: `70% 0.085 158`.
+
+The PDF template at `src/main/services/pdf-template.ts` mirrors this token (lines 117–127) — keep them in sync on any future brand change or PDF exports will visually drift from the app.
+
+In-app `<QuillMark>` (`src/renderer/src/components/ui/QuillMark.tsx`) is a tiny SVG echo of the Dock icon used in the Sidebar header + drawer header. Uses bundled Newsreader 800 (Playfair would require an extra font import for one glyph at 20px).
+
+### Silent-failure audit fixes
+
+Earlier in the session the silent-failure-hunter agent found 8 places where errors were dropped without logging or surfacing. All HIGH + MEDIUM items fixed:
+
+- `keychain.ts` decrypt failures now log the real cause; user no longer sees misleading "key not configured" when the blob is corrupt.
+- `db.ts` migrate wraps in try/catch that surfaces the db path + recovery hint; partial init no longer cached.
+- `meeting.tsx` shows an error UI on load failure (was rendering "Loading…" forever); notes-save errors surface a dismissible banner.
+- `dialog:saveMarkdown` writeFile failures throw real Errors with the path.
+- `useAudioCapture.ts` empty catches replaced with logs; recorder-restart failure marks the loop dead so UI stops claiming "recording".
+
+### Audio capture (still load-bearing — read this if you touch audio)
+
+The `getDisplayMedia` path was abandoned because macOS Sequoia/Tahoe TCC + ScreenCaptureKit hangs silently when the app is ad-hoc signed. Replaced with **AudioTee** (a Swift Core Audio Tap binary).
+
+- `src/main/services/audio-tap.ts` — main-process AudioTee wrapper. Spawns the binary, accumulates 16-bit PCM into 10s WAV chunks, IPCs to renderer as `audio-tap:chunk`. **Gates silent chunks** with RMS < 0.005 and emits `audio-tap:silent` after 3 consecutive silent chunks at capture start (= permission probably denied; mid-capture quiet doesn't trigger anymore).
+- `src/renderer/src/hooks/useAudioCapture.ts` — orchestrates mic (`getUserMedia` + rolling MediaRecorder) and system (audio-tap subscription). **Mic-side RMS gate at 0.01** drops silent chunks before sending to Whisper.
+- `src/shared/hallucination.ts` — pattern set for Whisper's silent-input hallucinations: long YouTube outros, standalone "Thank you.", emoji spam, common non-English silence drift (Swedish/Spanish/Russian).
+- `src/renderer/src/hooks/useChunkedTranscriber.ts` — Whisper queue. Pinned to `language: 'en'` in `meeting.tsx` to stop language drift.
+- `build/entitlements.mac.plist` + `scripts/after-sign.cjs` — required because we run `hardenedRuntime: true`. Re-signs the freshly-packaged `.app` with `--identifier space.maewa.quill --entitlements --options runtime --deep`. Also signs the nested AudioTee binary first (extraResources isn't covered by `--deep`).
+
+### Sprints 1 + 2 (shipped earlier — context for new session)
+
+- **Sprint 1**: Per-meeting AI Chat + slash recipes. Tables `recipes`, `chat_messages`. 6 built-in recipes (`coach`, `follow-up`, `action-items`, `decisions`, `objections`, `prep`). RightPane (`Chat` default + `Transcript` toggle).
+- **Sprint 2**: Folders. `folders` table + `meetings.folder_id`. Delete-folder NULL-outs `folder_id`. `FolderTree` collapsible sidebar with All/Unfiled, color cycle, rename/delete, per-folder chat link. `MeetingActions` "Move to folder…" submenu.
+
+---
+
+## Queued for next session
+
+The big-three queued items from the previous handover (PDF/share, calendar +
+auto-titling, responsiveness) all shipped this session. Remaining gaps from
+the Granola feature-parity research:
+
+1. **Inline citations in chat** — Granola's flagship Apr 2026 feature. Quill
+   stores the transcript already; a citation overlay would attach
+   `[mm:ss → mm:ss]` references to each chat assistant turn. Open question:
+   pass cited spans inline in the assistant prompt schema, or post-process
+   the response against the transcript via fuzzy match? Recommend the
+   structured-output approach with strict-mode JSON.
+2. **FTS5 + people/companies index** — replace the `LIKE %q%` substring
+   search in `meetingsRepo.search` with `CREATE VIRTUAL TABLE meetings_fts
+   USING fts5(...)`. Now that we have `attendees`, build a `people` view that
+   counts meetings per person and exposes a `/sidebar/people` browse mode.
+3. **More templates** — Quill has 6 vs Granola's 29-40. Easy win, just
+   editorial work in `src/shared/templates/`.
+4. **Public link sharing** — out of scope for local-first. The native
+   share-sheet path delivered this session covers Mail / Messages / AirDrop
+   for any Apple Mail / iMessage / Slack / Notion paste flow.
+
+The Sidebar drawer currently doesn't ship its own e2e test; consider adding
+one that resizes the BrowserWindow below 900 px and asserts the icon rail +
+overlay flow.
+
+**Out of scope (user explicitly deferred earlier):** MCP server,
+public-link sharing.
 
 ---
 
@@ -142,18 +225,36 @@ CREATE TABLE folders (
 
 ```bash
 cd /Users/amadeus/Claude-projects/notetaker
-pnpm install         # if needed
-pnpm dev             # iterate live
-pnpm test            # vitest
-pnpm test:e2e        # playwright + electron
+pnpm install          # if needed
+pnpm dev              # iterate live (uses dev binary path for audiotee)
+pnpm test             # vitest
+pnpm test:e2e         # playwright + electron
 pnpm typecheck
-pnpm icons           # regenerate app icon (only if redesigning)
-pnpm package         # mac DMG (unsigned)
+pnpm icons            # regenerate app icon
+pnpm package          # mac DMG (unsigned, after-sign hook re-signs with bundle id)
 ```
+
+**Install the latest packaged build:**
+```bash
+osascript -e 'quit app "Quill"' 2>/dev/null
+rm -rf /Applications/Quill.app
+pnpm package
+hdiutil attach release/Quill-0.1.0-arm64.dmg
+cp -R "/Volumes/Quill 0.1.0-arm64/Quill.app" /Applications/
+hdiutil detach "/Volumes/Quill 0.1.0-arm64"
+# Reset Quill's TCC so prompts re-fire (NEVER reset all apps' TCC)
+tccutil reset Microphone space.maewa.quill 2>/dev/null
+tccutil reset ScreenCapture space.maewa.quill 2>/dev/null
+open /Applications/Quill.app
+```
+
+After install, the user must:
+1. Allow Microphone when prompted (or System Settings → Privacy & Security → Microphone → enable Quill).
+2. Open Settings → Privacy & Security → **Screen & System Audio Recording**, scroll to **System Audio Recording Only**, click `+`, add Quill. (Toggling under "Screen Recording" alone is NOT enough on macOS Sequoia/Tahoe.)
+3. Quit + relaunch.
 
 For live testing with real APIs:
 ```bash
-# Don't commit any keys. Use a /tmp env file and source it inline:
 cat > /tmp/quill-live-env.sh <<'EOF'
 export OPENAI_API_KEY="sk-..."
 export OPENROUTER_API_KEY="sk-or-..."
@@ -163,56 +264,122 @@ chmod 600 /tmp/quill-live-env.sh
 rm /tmp/quill-live-env.sh
 ```
 
-The user's keys from this session **must be rotated before next session** — they were embedded in chat history. Generate new ones at:
-- https://platform.openai.com/api-keys
-- https://openrouter.ai/keys
-
-Then enter them once in **Settings → OpenAI / Anthropic / OpenRouter** in the running Quill app.
+**Rotate any keys ever pasted into chat.**
 
 ---
 
-## Reference architecture (key files)
+## Granola feature-parity research — 2026-05-08
+
+A `general-purpose` deep-research agent ran against `granola.ai` and surfaced their full feature inventory. Top findings worth keeping in head:
+
+| Feature | Granola has | Quill has |
+|---|---|---|
+| System audio capture, no bot | ✅ | ✅ AudioTee |
+| Enhance + 29-40 templates | ✅ | 🟡 6 templates + custom |
+| Slash recipes / lenses | ✅ Apr 2026 became agentic with citations | ✅ 6 + custom |
+| Per-meeting / cross-meeting chat | ✅ | ✅ |
+| Inline citations in chat | ✅ Apr 2026 | 🔴 |
+| Calendar integration + auto-titling + attendee detection | ✅ Google + MS Jan 2026 | ✅ via local-first ICS feed |
+| FTS / people-companies index | ✅ "lightning fast" | 🟡 substring only |
+| Sharing: Slack, Notion, public link, email | ✅ | ✅ PDF + native macOS share sheet (this session) + markdown |
+| MCP server | ✅ Feb 2026 | 🔴 (user said no MCP for now) |
+| Open source / local-first / BYO-key | 🔴 | ✅ Quill's moat |
+
+After the export plan ships, the highest-leverage next builds are:
+1. **Calendar integration + auto-titling** (single biggest UX gap; unlocks attendee detection + people graph)
+2. **FTS5 + people/companies index** (cheap, removes daily "where did I say X" pain)
+3. **Inline citations + cross-meeting RAG** (Granola's flagship 2026 feature; Quill differentiates by being open source)
+4. **Recipe & template marketplace as a Git repo** (open-source-native answer; community moat)
+
+User asked clarifying questions about calendar / auto-titling earlier in this session, hasn't committed to building them.
+
+---
+
+## Anti-patterns to avoid (learned this session and earlier)
+
+- `audio: 'loopback'` in `setDisplayMediaRequestHandler` is **Windows-only**. macOS uses `useSystemPicker: true`. We've abandoned this path entirely in favor of AudioTee.
+- `getDisplayMedia` is unreliable on macOS Sequoia/Tahoe with stale TCC entries — silent hang, no error.
+- `getMediaAccessStatus('screen')` lies. Don't rely on it for branching logic.
+- `hardenedRuntime: true` without an entitlements plist breaks `getUserMedia` (`NotFoundError`). Always pair with `build/entitlements.mac.plist`.
+- electron-builder's ad-hoc sign produces `Identifier=Electron`, colliding with every other Electron app in TCC. Re-sign with `--identifier <bundleId>` in afterSign.
+- `extraResources` binaries are NOT covered by `codesign --deep`. Sign them explicitly first.
+- `audiotee` is pure-ESM. Use `await import('audiotee')`, not `require()` or `createRequire`.
+- MediaRecorder `start(timeslice)` produces fragmented chunks. Use rolling stop+restart.
+- Whisper hallucinates on silent or instrumental audio. Always RMS-gate before sending; always filter known patterns after.
+- Properties on `window.quill.*` are read-only via `contextBridge` — can't be stubbed in Playwright via `evaluate`. Stub at main-process level via `electronApp.evaluate(...)`.
+- `addInitScript` doesn't fire on hash navigations in HashRouter. Use `evaluate` after navigation.
+- Live tests must `test.use({ trace: 'off', video: 'off' })` so credentials never persist into Playwright artifacts.
+- `motion` package's `motion/dom` subpath isn't a valid types entry — import from `'motion'` directly. Tree-shaker drops the React parts.
+- `record-flow.spec.ts:88` selects `div.card` on the Settings keys page. Don't remove the `.card` class even if you flatten its visual treatment.
+- Don't introduce new colors, font stacks, or motion primitives. Bind to existing tokens (`--moss`, `--ink-*`, `--surface-*`, `--duration-*`, `--ease-*`) and existing keyframes (`pulse-soft`, `breathe`, `fade-up`).
+
+---
+
+## Reference architecture
 
 ```
 src/
-├── main/                                  # Electron main process
-│   ├── index.ts                           # window + permission + getDisplayMedia handler
-│   ├── ipc/index.ts                       # all IPC handlers — extend here for chat/recipes/folders
+├── main/
+│   ├── index.ts                              # window + permission + audio-loopback init
+│   ├── ipc/index.ts                          # all IPC — folders, recipes, chat, audio-tap, dialog:*
 │   └── services/
-│       ├── db.ts                          # better-sqlite3, migrations, repos
-│       ├── keychain.ts                    # safeStorage wrapper
-│       ├── whisper.ts                     # OpenAI /v1/audio/transcriptions multipart POST
-│       └── enhancer.ts                    # Anthropic preferred → OpenAI → OpenRouter fallback
-├── preload/index.ts                       # contextBridge: window.quill.*
+│       ├── audio-tap.ts                      # AudioTee Swift binary wrapper (system audio)
+│       ├── chat.ts                           # chat completions — OpenRouter preferred default
+│       ├── db.ts                             # better-sqlite3 + migrations + repos
+│       ├── enhancer.ts                       # OpenRouter → Anthropic → OpenAI fallback
+│       ├── keychain.ts                       # safeStorage wrapper, decrypt errors logged
+│       ├── schema.ts                         # SQL DDL extracted for testing
+│       └── whisper.ts                        # OpenAI /v1/audio/transcriptions
+├── preload/index.ts                          # window.quill.* (audioTap, chat, recipes, folders, dialog, ...)
 ├── renderer/src/
-│   ├── App.tsx                            # routes + FirstRunGate
-│   ├── routes/                            # home, meeting, settings, templates, onboarding
-│   ├── components/                        # Shell, Sidebar, meeting/, templates/
-│   ├── hooks/                             # useAudioCapture, useChunkedTranscriber
-│   └── lib/                               # date, html, markdown
+│   ├── App.tsx
+│   ├── routes/                               # home (masthead), meeting (skeleton + slide), settings (masthead), templates, onboarding (revised), chat
+│   ├── components/
+│   │   ├── Masthead.tsx                      # NEW — editorial chrome
+│   │   ├── Shell.tsx                         # route fade-up
+│   │   ├── Sidebar.tsx                       # moss left-rule active state, italic issue counter at foot
+│   │   ├── chat/                             # MessageList (column not bubbles), Composer (underline only)
+│   │   ├── meeting/                          # RecordControls (pulsing RedDot), TranscriptStream (column), EnhancedView (drop cap), RightPane, MeetingActions, EnhanceBar
+│   │   ├── sidebar/FolderTree.tsx            # moss left-rule active state
+│   │   └── templates/                        # TemplateForm, RecipeForm
+│   ├── hooks/
+│   │   ├── useAudioCapture.ts                # mic + audio-tap; mic RMS gate at 0.01; recorder-restart failure marks loop dead
+│   │   └── useChunkedTranscriber.ts          # Whisper queue + hallucination filter
+│   ├── lib/
+│   │   ├── date.ts
+│   │   ├── issue.ts                          # deriveIssue, formatIssueDate
+│   │   └── markdown.ts
+│   └── styles/
+│       ├── fonts.css                         # @fontsource-variable imports
+│       ├── global.css                        # .eyebrow .dateline .microcopy .rule .card-elevated drop-cap reduced-motion
+│       └── tokens.css                        # OKLCH tokens + 3 keyframes + font vars
 └── shared/
-    ├── types.ts                           # Meeting, Template, TranscriptEntry, Settings
-    └── templates/                         # 6 built-in markdown templates + parse.ts + loaders
+    ├── types.ts
+    ├── recipes/                              # 6 built-in markdown recipes + parse + loaders
+    ├── templates/                            # 6 built-in markdown templates + parse + loaders
+    └── hallucination.ts                      # Whisper hallucination patterns + tests
 
-tests/
-├── unit/                                  # whisper, enhancer, templates, html, markdown
-└── e2e/
-    ├── smoke.spec.ts                      # home, new meeting, templates list
-    ├── record-flow.spec.ts                # transcript IPC, settings keychain
-    ├── meeting-actions.spec.ts            # copy, delete, export
-    ├── template-crud.spec.ts              # custom template CRUD
-    ├── onboarding-flow.spec.ts            # finish path, back-navigation
-    ├── dmg-smoke.spec.ts                  # launches packaged DMG
-    ├── screenshots.spec.ts                # generates docs/screenshots/
-    ├── _helpers.ts                        # launchAndBypassOnboarding
-    ├── _live-smoke.spec.ts                # gitignored, env-driven
-    └── _live-pipeline.spec.ts             # gitignored, env-driven
+build/entitlements.mac.plist                  # audio-input + JIT + library-validation off
+build/icon.svg                                # editorial: warm paper + moss hairline frame + serif Q
+scripts/after-sign.cjs                        # re-sign with bundle id + entitlements + nested binaries
+scripts/build-icons.mjs                       # SVG → iconset → icns
+electron-builder.yml                          # extraResources: audiotee binary
 ```
 
-## Anti-patterns to avoid (learned this session)
+---
 
-- `audio: 'loopback'` in `setDisplayMediaRequestHandler` callback is **Windows-only**. On macOS, set `useSystemPicker: true` so the OS picker handles audio routing via ScreenCaptureKit.
-- Properties on `window.quill.*` are read-only via `contextBridge` — you can't stub them in Playwright with `evaluate`. Stub at the main-process level via `electronApp.evaluate(({ dialog, shell }, ...) => { dialog.showSaveDialog = ... })`.
-- `addInitScript` doesn't fire on hash navigations in HashRouter. Inject stubs via `evaluate` after navigation.
-- `process.resourcesPath/templates` is the packaged location for built-in templates — `extraResources` in electron-builder.yml copies `src/shared/templates/*.md` there.
-- Live tests must `test.use({ trace: 'off', video: 'off' })` so credentials never persist into Playwright artifacts.
+## Memory pointers
+
+The session's memory at `~/.claude/projects/-Users-amadeus-Claude-projects-notetaker/memory/` includes:
+
+- `project_quill.md` — open-source Granola clone overview
+- `project_quill_editorial_revamp.md` — what shipped today, with reuse points
+- `project_quill_export_plan.md` — pointer to the queued plan file
+- `project_quill_audio_open_issue.md` — silent-input hallucinations (fixed, awaiting live verification)
+- `feedback_quill_design.md` — editorial direction the user signed off
+- `feedback_macos_entitlements.md` — hardenedRuntime + entitlements coupling
+- `feedback_quill_audio_capture.md` — AudioTee architecture
+- `reference_wave_app.md` — predecessor Swift dictation app patterns
+- `MEMORY.md` — index, auto-loaded into every conversation
+
+A fresh session in this project will pick all of those up automatically. The export plan at `~/.claude/plans/quill-export-pdf-md-shareable.md` is referenced from `project_quill_export_plan.md`.

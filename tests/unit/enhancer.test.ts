@@ -158,6 +158,33 @@ describe('enhancer.enhance', () => {
     expect(result.inputTokens).toBe(50);
   });
 
+  it('prefers OpenRouter when all three keys are set (cheap-by-default)', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      // OpenRouter is now the default-preferred provider when present —
+      // routes to a cheap model (Claude Haiku) without requiring users to
+      // pass `preferred` explicitly.
+      expect(url).toContain('openrouter.ai');
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'cheap-by-default' } }],
+          usage: { prompt_tokens: 8, completion_tokens: 2 },
+        }),
+        { status: 200 },
+      );
+    });
+    const result = await enhance({
+      rawNotes: 'x',
+      transcript,
+      template,
+      anthropicKey: 'sk-ant',
+      openaiKey: 'sk-openai',
+      openrouterKey: 'sk-or-test',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result.modelUsed).toMatch(/^openrouter:/);
+    expect(result.markdown).toBe('cheap-by-default');
+  });
+
   it('honors preferred=openrouter even when other keys exist', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       expect(url).toContain('openrouter.ai');

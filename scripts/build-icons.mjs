@@ -15,39 +15,48 @@ const root = join(here, '..');
 const buildDir = join(root, 'build');
 const iconsetDir = join(buildDir, 'icon.iconset');
 
-const PAPER = '#f1e7d2';
-const PAPER_LIGHT = '#fbf5e6';
-const PAPER_EDGE = '#e3d4ae';
-const INK = '#1d2a17';
-const INK_DOT = '#2f5b2a';
+// Final direction (chosen 2026-05-09): a confident Didone Q in cream on a
+// deep forest field. Picked from a 12-design portfolio + 10-color palette
+// review. The forest pulls darker and bluer than the prior moss so the icon
+// reads as ink-on-stock rather than acidic spring green.
+//
+// Token mirror: --moss in tokens.css is set to the same forest hue so the
+// in-app drop cap, active borders, and brand mark match the Dock icon.
+const FOREST = '#1f3a2c'; // primary
+const FOREST_DEEP = '#11241c'; // shadowed corner of the squircle
+const PAPER = '#FFFCF6'; // Apple Notes-style warm white for the cream Q
 
-// Typographic logo: italic serif "Q" on warm paper. The Q monogram ties the
-// mark directly to the product name and reads cleanly at 16px. Newsreader is
-// loaded from Google Fonts in the rendering HTML; Georgia is the fallback.
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="paper" x1="0.2" y1="0" x2="0.8" y2="1">
-      <stop offset="0%" stop-color="${PAPER_LIGHT}"/>
-      <stop offset="100%" stop-color="${PAPER}"/>
+    <linearGradient id="forest-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${FOREST}"/>
+      <stop offset="100%" stop-color="${FOREST_DEEP}"/>
     </linearGradient>
-    <radialGradient id="vignette" cx="50%" cy="50%" r="65%">
-      <stop offset="60%" stop-color="${PAPER_LIGHT}" stop-opacity="0"/>
-      <stop offset="100%" stop-color="${PAPER_EDGE}" stop-opacity="0.5"/>
-    </radialGradient>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4"/>
+      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.06 0"/>
+      <feComposite in2="SourceGraphic" operator="in"/>
+    </filter>
+    <clipPath id="squircle">
+      <rect width="1024" height="1024" rx="232"/>
+    </clipPath>
   </defs>
 
-  <rect width="1024" height="1024" rx="220" fill="url(#paper)"/>
-  <rect width="1024" height="1024" rx="220" fill="url(#vignette)"/>
-
-  <g>
-    <text x="512" y="760"
-          font-family="Newsreader, 'Source Serif Pro', Georgia, 'Times New Roman', serif"
-          font-style="italic" font-weight="500"
-          font-size="820" letter-spacing="-12"
-          text-anchor="middle" fill="${INK}">Q</text>
+  <g clip-path="url(#squircle)">
+    <!-- Forest squircle with subtle gradient. -->
+    <rect width="1024" height="1024" fill="url(#forest-bg)"/>
+    <!-- Quiet paper-grain noise so the surface has texture, not vector flatness. -->
+    <rect width="1024" height="1024" filter="url(#grain)" opacity="0.35"/>
   </g>
 
-  <circle cx="850" cy="860" r="28" fill="${INK_DOT}" opacity="0.85"/>
+  <!-- Cream Didone Q. Playfair Display 900 at full bleed; the high-contrast
+       thicks/thins, the elegant tail, and the cream-on-forest contrast give
+       the icon real type personality. -->
+  <text x="512" y="800"
+        font-family="'Playfair Display', 'Bodoni 72', Georgia, 'Times New Roman', serif"
+        font-style="normal" font-weight="900"
+        font-size="950" letter-spacing="-40"
+        text-anchor="middle" fill="${PAPER}">Q</text>
 </svg>`;
 
 const sizes = [
@@ -76,7 +85,7 @@ async function main() {
       const html = `<!doctype html><html><head><meta charset="utf-8"/>
         <link rel="preconnect" href="https://fonts.googleapis.com"/>
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-        <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@1,500&display=block" rel="stylesheet"/>
+        <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@900&display=block" rel="stylesheet"/>
         <style>
           html,body{margin:0;padding:0;background:transparent;}
           svg{display:block;}
@@ -91,7 +100,8 @@ async function main() {
         deviceScaleFactor: 1,
       });
       await page.setContent(html);
-      // Wait for the web font to load so the Q renders in Newsreader, not the fallback.
+      // Wait for the web font to land so the Q renders in Playfair Display
+      // rather than Times. Letter shapes diverge significantly between the two.
       await page
         .evaluate(async () => {
           if (document.fonts && document.fonts.ready) {

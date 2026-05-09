@@ -110,7 +110,7 @@ test('delete confirms and routes back to home', async () => {
   await app.close();
 });
 
-test('export to .md hits dialog and writes file', async () => {
+test('export → markdown hits dialog and writes file', async () => {
   const { app, win } = await launchAndBypassOnboarding([
     '.',
     `--user-data-dir=${userDataDir}-export`,
@@ -133,7 +133,8 @@ test('export to .md hits dialog and writes file', async () => {
   await gotoMeeting(win, 'Exported meeting', '<p>note body</p>');
 
   await win.getByTestId('meeting-actions').click();
-  await win.getByText('Export to .md').click();
+  await win.getByTestId('export-submenu').click();
+  await win.getByTestId('export-md').click();
 
   // Wait for the file to land
   await expect
@@ -143,6 +144,101 @@ test('export to .md hits dialog and writes file', async () => {
   const content = readFileSync(exportPath, 'utf-8');
   expect(content).toContain('# Exported meeting');
   expect(content).toContain('note body');
+
+  await app.close();
+});
+
+test('export → pdf renders a real PDF via printToPDF', async () => {
+  const { app, win } = await launchAndBypassOnboarding([
+    '.',
+    `--user-data-dir=${userDataDir}-pdf`,
+  ]);
+
+  const exportPath = join(userDataDir, `export-${Date.now()}.pdf`);
+
+  // Stub the Save dialog and Reveal-in-Finder; the actual PDF rendering goes
+  // through the real printToPDF code path so this test exercises the full
+  // template + offscreen-window pipeline.
+  await app.evaluate(async ({ dialog, shell }, p: string) => {
+    dialog.showSaveDialog = (async () => ({
+      canceled: false,
+      filePath: p,
+    })) as unknown as typeof dialog.showSaveDialog;
+    shell.showItemInFolder = (() => {
+      // no-op for tests
+    }) as unknown as typeof shell.showItemInFolder;
+  }, exportPath);
+
+  await gotoMeeting(
+    win,
+    'PDF Roundtrip',
+    '<h2>Decisions</h2><p>Ship the editorial PDF.</p>',
+  );
+
+  await win.getByTestId('meeting-actions').click();
+  await win.getByTestId('export-submenu').click();
+  await win.getByTestId('export-pdf').click();
+
+  await expect
+    .poll(() => existsSync(exportPath), { timeout: 20000 })
+    .toBe(true);
+
+  const buf = readFileSync(exportPath);
+  // PDFs always begin with %PDF- and are at minimum a few KB once a real page
+  // has rendered. If the file is suspiciously tiny we caught a stub leak.
+  expect(buf.byteLength).toBeGreaterThan(2048);
+  expect(buf.subarray(0, 5).toString('utf8')).toBe('%PDF-');
+
+  await app.close();
+});
+
+test('share → pdf hands a temp PDF to shell.openPath', async () => {
+  const { app, win } = await launchAndBypassOnboarding([
+    '.',
+    `--user-data-dir=${userDataDir}-share`,
+  ]);
+
+  // Stub shell.openPath in the main process so we don't actually launch
+  // Preview during tests, and capture what was called.
+  await app.evaluate(async ({ shell }) => {
+    interface SharedRecord {
+      paths: string[];
+    }
+    const g = global as unknown as { __qShared?: SharedRecord };
+    g.__qShared = { paths: [] };
+    shell.openPath = (async (p: string) => {
+      g.__qShared!.paths.push(p);
+      return '';
+    }) as unknown as typeof shell.openPath;
+  });
+
+  await gotoMeeting(win, 'Sharable meeting', '<p>quick brief</p>');
+
+  await win.getByTestId('meeting-actions').click();
+  await win.getByTestId('share-pdf').click();
+
+  // Wait for the share IPC to settle. The handler renders the PDF in main,
+  // calls shell.openPath, then resolves.
+  const calls = await app.evaluate(async () => {
+    const start = Date.now();
+    while (Date.now() - start < 20000) {
+      const g = global as unknown as { __qShared?: { paths: string[] } };
+      if (g.__qShared && g.__qShared.paths.length > 0) {
+        return g.__qShared.paths;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return [];
+  });
+
+  expect(calls.length).toBeGreaterThan(0);
+  const sharedPath = calls[0];
+  expect(sharedPath.endsWith('.pdf')).toBe(true);
+
+  // Confirm the PDF was actually written to the temp path before openPath.
+  expect(existsSync(sharedPath)).toBe(true);
+  const buf = readFileSync(sharedPath);
+  expect(buf.subarray(0, 5).toString('utf8')).toBe('%PDF-');
 
   await app.close();
 });

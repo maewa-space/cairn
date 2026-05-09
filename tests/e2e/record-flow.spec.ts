@@ -55,6 +55,9 @@ test('transcript entries appended via IPC render with correct speaker styling', 
     window.location.hash = `#/meeting/${id}`;
   }, meetingId);
 
+  // Right pane defaults to Chat (Granola-style); switch to Transcript tab.
+  await win.getByRole('button', { name: /^Transcript/ }).click();
+
   const stream = win.getByTestId('transcript-stream');
   await expect(stream).toContainText('shipped the migration');
   await expect(stream).toContainText('blockers on the auth flow');

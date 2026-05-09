@@ -22,15 +22,19 @@ test('onboarding finish path stores OpenAI key and lands on home', async () => {
 
   // Step 1 — intro
   await expect(win.getByTestId('onboarding-intro')).toBeVisible();
-  await expect(
-    win.getByText(/A quiet notetaker for your meetings/i),
-  ).toBeVisible();
+  // Editorial headline mirrors the home page: "Note every meeting. Polish it later."
+  await expect(win.getByText(/Note every meeting/i)).toBeVisible();
+  await expect(win.getByText(/Polish it later/i)).toBeVisible();
   await win.getByTestId('onboarding-next-permissions').click();
 
   // Step 2 — permissions
   await expect(win.getByTestId('onboarding-permissions')).toBeVisible();
   await expect(win.getByText('Microphone', { exact: true })).toBeVisible();
-  await expect(win.getByText('Screen Recording', { exact: true })).toBeVisible();
+  // The permission is "System Audio Recording" (macOS Sequoia split it from
+  // Screen Recording — Quill uses Core Audio Tap via AudioTee, not video).
+  await expect(
+    win.getByText('System Audio Recording', { exact: true }),
+  ).toBeVisible();
   await win.getByTestId('onboarding-next-keys').click();
 
   // Step 3 — keys
@@ -39,20 +43,21 @@ test('onboarding finish path stores OpenAI key and lands on home', async () => {
   const finish = win.getByTestId('onboarding-finish');
   await expect(finish).toBeDisabled();
   await win.getByTestId('onboarding-key-openai').fill('sk-test-finish-flow');
-  await win.getByTestId('onboarding-key-anthropic').fill('sk-ant-finish');
+  await win.getByTestId('onboarding-key-openrouter').fill('sk-or-finish');
   await expect(finish).toBeEnabled();
   await finish.click();
 
   // Lands on /home, no longer on onboarding
   await expect(win.getByTestId('start-new-meeting')).toBeVisible();
 
-  // Both keys persisted
-  const [hasOpenai, hasAnthropic] = await win.evaluate(async () => [
+  // Both keys persisted — OpenRouter is now the recommended secondary key
+  // (preferred for chat + enhancement on the cheap Haiku route).
+  const [hasOpenai, hasOpenrouter] = await win.evaluate(async () => [
     await window.quill.keys.has('openai'),
-    await window.quill.keys.has('anthropic'),
+    await window.quill.keys.has('openrouter'),
   ]);
   expect(hasOpenai).toBe(true);
-  expect(hasAnthropic).toBe(true);
+  expect(hasOpenrouter).toBe(true);
 
   await app.close();
 });

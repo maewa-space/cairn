@@ -5,6 +5,7 @@ import { HomeRoute } from './routes/home';
 import { MeetingRoute } from './routes/meeting';
 import { SettingsRoute } from './routes/settings';
 import { TemplatesRoute } from './routes/templates';
+import { ChatRoute } from './routes/chat';
 import { OnboardingRoute } from './routes/onboarding';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
                 <Route path="/meeting/:id" element={<MeetingRoute />} />
                 <Route path="/settings" element={<SettingsRoute />} />
                 <Route path="/templates" element={<TemplatesRoute />} />
+                <Route path="/chat" element={<ChatRoute />} />
               </Routes>
             </Shell>
           </FirstRunGate>

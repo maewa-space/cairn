@@ -12,9 +12,12 @@
   /* Edges */
   --edge: 88% 0.010 250;
 
-  /* Brand — moss-ink green (quill nib / parchment) + warm amber accent */
-  --moss: 52% 0.085 145;
-  --sage: 78% 0.045 145;
+  /* Brand — deep forest green (Quill icon background) + warm amber accent.
+   * Pulled darker and bluer than the prior "moss" so it reads as ink-on-page
+   * rather than acidic spring green. The token name stays --moss because the
+   * codebase references it broadly; only the value moves. */
+  --moss: 31% 0.06 158;
+  --sage: 78% 0.045 158;
   --stone: 70% 0.012 90;
   --accent: 64% 0.16 35;
   --accent-2: 80% 0.10 60;
@@ -40,14 +43,56 @@
   /* Motion */
   --duration-fast: 120ms;
   --duration-normal: 220ms;
+  --duration-slow: 320ms;
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-soft: cubic-bezier(0.45, 0, 0.55, 1);
 
   /* Radii */
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+
+  /* Font families — bound here so the rest of the app references one
+   * canonical name. The 'Variable' suffix matches @fontsource-variable. */
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: 'Newsreader Variable', 'Newsreader', Georgia, serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Editorial keyframes — used by the live recording indicator, status
+ * microcopy, and meeting-list arrival. All durations bind to the motion
+ * tokens above. Disabled under prefers-reduced-motion in global.css. */
+@keyframes pulse-soft {
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes breathe {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-up {
+  0% {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -59,8 +104,8 @@
     --ink-muted: 76% 0.012 250;
     --ink-soft: 58% 0.010 250;
     --edge: 30% 0.014 250;
-    --moss: 72% 0.10 145;
-    --sage: 60% 0.06 145;
+    --moss: 70% 0.085 158;
+    --sage: 60% 0.06 158;
     --stone: 50% 0.010 90;
     --accent: 78% 0.14 35;
     --accent-2: 82% 0.10 60;

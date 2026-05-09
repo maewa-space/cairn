@@ -18,7 +18,22 @@ export interface Meeting {
   enhancedNotes: string | null;
   templateId: string | null;
   folderId: string | null;
+  calendarEventId: string | null;
+  attendees: string[];
   transcript: TranscriptEntry[];
+}
+
+export interface CalendarEvent {
+  id: string;
+  uid: string;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  attendees: string[];
+  location: string | null;
+  description: string | null;
+  source: string;
+  fetchedAt: string;
 }
 
 export interface Template {
@@ -28,6 +43,43 @@ export interface Template {
   systemPrompt: string;
   body: string;
   builtIn: boolean;
+  createdAt: string;
+}
+
+export type RecipeScope = 'meeting' | 'global';
+
+export interface Recipe {
+  id: string;
+  name: string;
+  trigger: string;
+  description: string;
+  scope: RecipeScope;
+  prompt: string;
+  builtIn: boolean;
+  createdAt: string;
+}
+
+export type ChatRole = 'user' | 'assistant';
+
+export interface ChatMessage {
+  id: string;
+  meetingId: string | null;
+  folderId: string | null;
+  role: ChatRole;
+  content: string;
+  recipeId: string | null;
+  createdAt: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  model: string | null;
+}
+
+export type FolderColor = 'moss' | 'sage' | 'amber' | 'stone' | null;
+
+export interface Folder {
+  id: string;
+  name: string;
+  color: FolderColor;
   createdAt: string;
 }
 

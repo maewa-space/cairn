@@ -11,7 +11,14 @@ extraResources:
     to: "templates"
     filter:
       - "*.md"
+  - from: "src/shared/recipes"
+    to: "recipes"
+    filter:
+      - "*.md"
+  - from: "node_modules/audiotee/bin/audiotee"
+    to: "audiotee"
 asar: true
+afterSign: scripts/after-sign.cjs
 mac:
   category: public.app-category.productivity
   target:
@@ -20,6 +27,8 @@ mac:
   identity: null
   hardenedRuntime: true
   gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     NSMicrophoneUsageDescription: "During your meetings, Quill transcribes your microphone."
     NSScreenCaptureUsageDescription: "During your meetings, Quill uses screen capture to transcribe system audio. The screen video is discarded; only the audio track is used."

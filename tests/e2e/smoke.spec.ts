@@ -35,6 +35,10 @@ test('starts a new meeting and opens meeting view', async () => {
   await win.getByTestId('start-new-meeting').click();
   await expect(win.getByTestId('meeting-title')).toBeVisible();
   await expect(win.getByTestId('record-start')).toBeVisible();
+  // Right pane defaults to Chat tab — composer should be visible.
+  await expect(win.getByTestId('chat-composer')).toBeVisible();
+  // Switching to Transcript tab reveals the live transcript pane.
+  await win.getByRole('button', { name: /^Transcript/ }).click();
   await expect(win.getByTestId('transcript-stream')).toBeVisible();
 
   await app.close();

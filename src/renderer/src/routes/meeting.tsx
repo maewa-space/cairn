@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Meeting, TranscriptEntry } from '@shared/types.js';
+import { animate } from 'motion';
+import type { Folder, Meeting, TranscriptEntry } from '@shared/types.js';
 import { NotesEditor } from '../components/meeting/NotesEditor';
-import { TranscriptStream } from '../components/meeting/TranscriptStream';
-import { RecordControls } from '../components/meeting/RecordControls';
+import { RecordControls, RedDot } from '../components/meeting/RecordControls';
 import { EnhanceBar } from '../components/meeting/EnhanceBar';
 import { EnhancedView } from '../components/meeting/EnhancedView';
 import { MeetingActions } from '../components/meeting/MeetingActions';
+import { RightPane } from '../components/meeting/RightPane';
 import { useAudioCapture } from '../hooks/useAudioCapture';
 import { useChunkedTranscriber } from '../hooks/useChunkedTranscriber';
+import { BREAKPOINTS, useMediaQuery } from '../hooks/useMediaQuery';
 import { formatTime } from '../lib/date';
 
 const NOTES_DEBOUNCE_MS = 600;
@@ -24,19 +26,34 @@ export function MeetingRoute() {
   const [enhancing, setEnhancing] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState('');
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [folderId, setFolderId] = useState<string | null>(null);
 
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [bodyTab, setBodyTab] = useState<'body' | 'side'>('body');
+  const isNarrow = useMediaQuery(BREAKPOINTS.narrowBody);
+  const isMobile = useMediaQuery(BREAKPOINTS.mobile);
   const startedRef = useRef<number | null>(null);
+  const viewWrapperRef = useRef<HTMLDivElement>(null);
+  // Soft slide between Raw notes ↔ Enhanced view. Skip the first paint so
+  // the wrapper doesn't fade in on initial mount, only on user-triggered
+  // toggles. Reduced-motion guard collapses to ~0ms automatically.
+  const firstViewRef = useRef(true);
 
-  const { enqueue } = useChunkedTranscriber({
+  const { enqueue, pending: pendingChunks } = useChunkedTranscriber({
+    // Pin to English. Whisper auto-detect drifts into Swedish/Spanish/Russian
+    // on near-silent input which then surfaces as hallucinated transcript.
+    language: 'en',
     onEntry: (entry) => setEntries((prev) => [...prev, entry]),
     onError: (err) => console.error('[transcribe]', err),
   });
 
   const capture = useAudioCapture({
-    chunkSeconds: 20,
+    chunkSeconds: 10,
     onChunk: ({ speaker, blob, startedAtMs, durationMs }) => {
       enqueue({ meetingId: id, speaker, blob, startedAtMs, durationMs });
     },
@@ -49,17 +66,69 @@ export function MeetingRoute() {
   // Load meeting
   useEffect(() => {
     if (!id) return;
-    window.quill.meetings.get(id).then((m) => {
-      if (!m) return;
-      setMeeting(m);
-      setNotes(m.rawNotes);
-      setTitleDraft(m.title);
-      setEntries(m.transcript);
-      setEnhanced(m.enhancedNotes);
-      setTemplateId(m.templateId);
-      setView(m.enhancedNotes ? 'enhanced' : 'notes');
-    });
+    let alive = true;
+    setLoadError(null);
+    window.quill.meetings
+      .get(id)
+      .then((m) => {
+        if (!alive) return;
+        if (!m) {
+          setLoadError(`Meeting ${id} not found.`);
+          return;
+        }
+        setMeeting(m);
+        setNotes(m.rawNotes);
+        setTitleDraft(m.title);
+        setEntries(m.transcript);
+        setEnhanced(m.enhancedNotes);
+        setTemplateId(m.templateId);
+        setFolderId(m.folderId);
+        setView(m.enhancedNotes ? 'enhanced' : 'notes');
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[meeting] load failed:', err);
+        setLoadError(msg);
+      });
+    return () => {
+      alive = false;
+    };
   }, [id]);
+
+  // Reflect the meeting title in the window chrome.
+  useEffect(() => {
+    if (titleDraft) {
+      document.title = `Quill — ${titleDraft}`;
+    }
+  }, [titleDraft]);
+
+  // Load folders so we can offer "Move to folder…"
+  useEffect(() => {
+    let alive = true;
+    window.quill.folders
+      .list()
+      .then((list) => {
+        if (alive) setFolders(list);
+      })
+      .catch((err: unknown) => {
+        // Folder list is non-blocking — failing to load just means the
+        // "Move to folder" submenu is empty. Log so we can debug later.
+        console.warn('[meeting] folders.list failed:', err);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const moveToFolder = useCallback(
+    async (next: string | null) => {
+      if (!id) return;
+      await window.quill.meetings.moveToFolder(id, next);
+      setFolderId(next);
+    },
+    [id],
+  );
 
   // Debounced notes save
   const notesRef = useRef(notes);
@@ -67,10 +136,38 @@ export function MeetingRoute() {
   useEffect(() => {
     if (!id) return;
     const t = window.setTimeout(() => {
-      window.quill.meetings.saveNotes(id, notesRef.current);
+      window.quill.meetings.saveNotes(id, notesRef.current).then(
+        () => {
+          // Clear any prior persistent save-error banner once a write succeeds.
+          setNotesError((prev) => (prev ? null : prev));
+        },
+        (err: unknown) => {
+          // Without this catch a DB failure (disk full, locked file, schema
+          // mismatch) was completely silent — the user kept typing and
+          // believed everything persisted. Surface a banner instead.
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[notes] save failed:', err);
+          setNotesError(msg);
+        },
+      );
     }, NOTES_DEBOUNCE_MS);
     return () => window.clearTimeout(t);
   }, [notes, id]);
+
+  // Slide between Raw notes ↔ Enhanced view on user toggle.
+  useEffect(() => {
+    if (firstViewRef.current) {
+      firstViewRef.current = false;
+      return;
+    }
+    const el = viewWrapperRef.current;
+    if (!el) return;
+    animate(
+      el,
+      { opacity: [0, 1], x: [4, 0] },
+      { duration: 0.22, ease: 'easeOut' },
+    );
+  }, [view]);
 
   // Elapsed timer while recording
   useEffect(() => {
@@ -130,111 +227,261 @@ export function MeetingRoute() {
     [meeting],
   );
 
-  if (!meeting) {
+  if (loadError) {
     return (
-      <div className="pt-12 px-10 text-ink-soft">Loading meeting…</div>
+      <div className="pt-16 px-5 sm:px-10 max-w-2xl mx-auto">
+        <div className="eyebrow mb-3" style={{ color: 'oklch(var(--accent))' }}>
+          A page is missing
+        </div>
+        <div className="rule mb-5" />
+        <p className="microcopy text-base leading-relaxed mb-1">
+          we couldn't open this meeting.
+        </p>
+        <p className="font-mono text-[12px] text-ink-soft leading-relaxed mt-3">
+          {loadError}
+        </p>
+        <button
+          className="btn btn-ghost mt-6"
+          onClick={() => nav('/home')}
+        >
+          ← Back to home
+        </button>
+      </div>
     );
   }
 
+  if (!meeting) {
+    // Skeleton silhouette in the rough shape of the meeting page — keeps the
+    // layout from snapping into place when the IPC resolves. Shimmers via
+    // the `breathe` keyframe at low contrast.
+    return (
+      <div className="pt-16 px-5 sm:px-10 max-w-3xl mx-auto">
+        <div
+          className="h-7 w-2/3 rounded-md bg-surface-3"
+          style={{ animation: 'breathe 2.4s var(--ease-in-out-soft) infinite' }}
+        />
+        <div className="rule mt-4 mb-6" />
+        <div className="space-y-3">
+          <div
+            className="h-3 w-full rounded-sm bg-surface-3"
+            style={{ animation: 'breathe 2.4s var(--ease-in-out-soft) infinite', animationDelay: '0.1s' }}
+          />
+          <div
+            className="h-3 w-11/12 rounded-sm bg-surface-3"
+            style={{ animation: 'breathe 2.4s var(--ease-in-out-soft) infinite', animationDelay: '0.2s' }}
+          />
+          <div
+            className="h-3 w-9/12 rounded-sm bg-surface-3"
+            style={{ animation: 'breathe 2.4s var(--ease-in-out-soft) infinite', animationDelay: '0.3s' }}
+          />
+        </div>
+        <p className="microcopy mt-8 text-sm">opening the meeting…</p>
+      </div>
+    );
+  }
+
+  const showBody = !isNarrow || bodyTab === 'body';
+  const showSide = !isNarrow || bodyTab === 'side';
+  const horizontalPad = isMobile ? 'px-4' : 'px-6';
+  const bodyPad = isMobile ? 'px-4 py-4' : 'px-7 py-5';
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr] pt-9">
-      {/* Top bar */}
-      <div className="flex items-center justify-between gap-4 border-b hairline px-6 py-3">
-        <div className="min-w-0 flex-1">
+      {/* Top bar — wraps under ~820px so the title stays legible while
+          recording controls fall to a second row instead of clipping. */}
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 gap-y-2 border-b hairline ${horizontalPad} py-3`}
+      >
+        <div className="min-w-0 flex-1 basis-[220px]">
           <input
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={onTitleBlur}
-            className="w-full bg-transparent font-serif text-xl tracking-tight focus:outline-none"
-            style={{ letterSpacing: '-0.02em' }}
+            className={`w-full bg-transparent font-serif tracking-tight focus:outline-none placeholder:text-ink-soft ${
+              isMobile ? 'text-xl' : 'text-2xl'
+            }`}
+            style={{ letterSpacing: '-0.022em', fontWeight: 500 }}
+            placeholder="Untitled meeting"
             data-testid="meeting-title"
           />
-          <div className="text-[11px] text-ink-soft mt-0.5">
-            Started {startedAtLabel}
+          <div className="dateline mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span>STARTED {startedAtLabel.toUpperCase()}</span>
+            {meeting.attendees.length > 0 && (
+              <span
+                className="inline-flex items-center gap-1.5 normal-case tracking-normal text-ink-soft"
+                data-testid="meeting-attendees"
+              >
+                <span aria-hidden>·</span>
+                <span className="font-serif italic text-[12px]">
+                  {meeting.attendees.slice(0, 3).join(', ')}
+                  {meeting.attendees.length > 3 &&
+                    ` +${meeting.attendees.length - 3}`}
+                </span>
+              </span>
+            )}
             {capture.state === 'recording' && (
-              <span className="ml-2 inline-flex items-center gap-1 text-accent">
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: 'oklch(var(--accent))' }}
-                />
-                live
+              <span className="inline-flex items-center gap-1.5 text-accent normal-case tracking-normal">
+                <RedDot tone="on-page" />
+                <span className="font-serif italic text-[12px]">live</span>
               </span>
             )}
           </div>
         </div>
-        <RecordControls
-          state={capture.state}
-          error={capture.error}
-          hasMic={capture.hasMic}
-          hasSystem={capture.hasSystem}
-          micLevel={micLevel}
-          systemLevel={systemLevel}
-          elapsedMs={elapsedMs}
-          onStart={capture.start}
-          onStop={stopRecording}
-        />
-        <EnhanceBar
-          disabled={
-            entries.length === 0 && (notes.trim().length === 0)
-          }
-          enhancing={enhancing}
-          selectedTemplateId={templateId}
-          onSelect={setTemplateId}
-          onRun={runEnhance}
-        />
-        <MeetingActions
-          meetingTitle={titleDraft || 'Untitled meeting'}
-          rawNotesHtml={notes}
-          enhancedMarkdown={enhanced}
-          onDelete={deleteMeeting}
-        />
+        <div className="flex flex-wrap items-center gap-2 gap-y-2">
+          <RecordControls
+            state={capture.state}
+            error={capture.error}
+            micError={capture.micError}
+            systemError={capture.systemError}
+            hasMic={capture.hasMic}
+            hasSystem={capture.hasSystem}
+            micLevel={micLevel}
+            systemLevel={systemLevel}
+            elapsedMs={elapsedMs}
+            pendingChunks={pendingChunks}
+            onStart={capture.start}
+            onStop={stopRecording}
+            onRetrySystem={capture.retrySystem}
+            onOpenMicSettings={() =>
+              window.quill.permissions.openSystemSettings('mic')
+            }
+          />
+          <EnhanceBar
+            disabled={
+              entries.length === 0 && (notes.trim().length === 0)
+            }
+            enhancing={enhancing}
+            selectedTemplateId={templateId}
+            onSelect={setTemplateId}
+            onRun={runEnhance}
+          />
+          <MeetingActions
+            meetingId={id}
+            meetingTitle={titleDraft || 'Untitled meeting'}
+            currentFolderId={folderId}
+            folders={folders}
+            rawNotesHtml={notes}
+            enhancedMarkdown={enhanced}
+            onDelete={deleteMeeting}
+            onMoveToFolder={moveToFolder}
+          />
+        </div>
       </div>
 
-      {/* Two-pane body */}
-      <div className="grid h-full min-h-0 grid-cols-[1fr_360px]">
-        <div className="flex h-full min-h-0 flex-col">
-          {enhanced && (
-            <div className="flex items-center gap-1 border-b hairline px-5 py-1.5 text-[11px]">
-              <button
-                onClick={() => setView('notes')}
-                className={`rounded-md px-2 py-1 ${
-                  view === 'notes'
-                    ? 'bg-surface-3 text-ink'
-                    : 'text-ink-muted'
-                }`}
-              >
-                Raw notes
-              </button>
-              <button
-                onClick={() => setView('enhanced')}
-                className={`rounded-md px-2 py-1 ${
-                  view === 'enhanced'
-                    ? 'bg-surface-3 text-ink'
-                    : 'text-ink-muted'
-                }`}
-              >
-                Enhanced
-              </button>
-            </div>
-          )}
-          <div className="scroll-thin h-full overflow-y-auto px-7 py-5">
-            {view === 'enhanced' && enhanced ? (
-              <EnhancedView markdown={enhanced} />
-            ) : (
-              <NotesEditor
-                initialMarkdown={notes}
-                onChange={setNotes}
-                placeholder="Type rough notes here while you listen…"
-              />
+      {/* Narrow widths: tab toggle to switch between Notes and the right pane.
+          Wide widths: render both side-by-side as before. */}
+      {isNarrow && (
+        <div
+          className={`flex items-center gap-5 border-b hairline ${horizontalPad} py-2`}
+          data-testid="body-tabs"
+        >
+          <button
+            onClick={() => setBodyTab('body')}
+            className={`eyebrow transition-colors ${
+              bodyTab === 'body' ? 'text-ink' : 'hover:text-ink-muted'
+            }`}
+            data-testid="body-tab-notes"
+          >
+            Notes
+          </button>
+          <span className="text-ink-soft" aria-hidden>·</span>
+          <button
+            onClick={() => setBodyTab('side')}
+            className={`eyebrow transition-colors ${
+              bodyTab === 'side' ? 'text-ink' : 'hover:text-ink-muted'
+            }`}
+            data-testid="body-tab-side"
+          >
+            Chat &amp; transcript
+          </button>
+        </div>
+      )}
+
+      <div
+        className={`grid h-full min-h-0 ${
+          isNarrow ? 'grid-cols-1' : 'grid-cols-[1fr_minmax(280px,360px)]'
+        }`}
+      >
+        {showBody && (
+          <div className="flex h-full min-h-0 flex-col">
+            {enhanced && (
+              <div className={`flex items-baseline gap-5 border-b hairline ${horizontalPad} py-2.5`}>
+                <button
+                  onClick={() => setView('notes')}
+                  aria-pressed={view === 'notes'}
+                  className={`eyebrow transition-colors pb-0.5 border-b-2 ${
+                    view === 'notes'
+                      ? 'text-ink border-b-ink'
+                      : 'border-b-transparent hover:text-ink-muted'
+                  }`}
+                >
+                  Raw notes
+                </button>
+                <span className="text-ink-soft" aria-hidden>·</span>
+                <button
+                  onClick={() => setView('enhanced')}
+                  aria-pressed={view === 'enhanced'}
+                  className={`eyebrow transition-colors pb-0.5 border-b-2 ${
+                    view === 'enhanced'
+                      ? 'text-ink border-b-moss'
+                      : 'border-b-transparent hover:text-ink-muted'
+                  }`}
+                >
+                  Enhanced
+                </button>
+                {view === 'enhanced' && (
+                  <span className="dateline ml-auto">POLISHED</span>
+                )}
+              </div>
             )}
+            {notesError && (
+              <div
+                role="alert"
+                aria-live="polite"
+                className={`mx-${isMobile ? '4' : '7'} mt-3 flex items-start justify-between gap-3 border-t border-l-2 border-l-accent border-t-edge px-3 py-2`}
+              >
+                <p className="microcopy text-xs leading-relaxed">
+                  <span
+                    className="eyebrow mr-1.5"
+                    style={{ color: 'oklch(var(--accent))' }}
+                  >
+                    Couldn't save
+                  </span>
+                  your last edits aren't on disk
+                  <span className="ml-1 opacity-60 not-italic font-mono">({notesError})</span>
+                </p>
+                <button
+                  className="text-ink-soft hover:text-ink underline shrink-0 text-xs"
+                  onClick={() => setNotesError(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+            <div className={`scroll-thin h-full overflow-y-auto ${bodyPad}`}>
+              <div ref={viewWrapperRef}>
+                {view === 'enhanced' && enhanced ? (
+                  <EnhancedView markdown={enhanced} />
+                ) : (
+                  <NotesEditor
+                    initialMarkdown={notes}
+                    onChange={setNotes}
+                    placeholder="Type rough notes here while you listen…"
+                  />
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="border-l hairline flex flex-col">
-          <div className="px-5 pt-3 pb-1 text-[11px] uppercase tracking-wider text-ink-soft">
-            Live transcript
+        )}
+        {showSide && (
+          <div
+            className={`${
+              isNarrow ? 'border-t' : 'border-l'
+            } hairline flex flex-col min-h-0`}
+          >
+            <RightPane meetingId={id} entries={entries} />
           </div>
-          <TranscriptStream entries={entries} />
-        </div>
+        )}
       </div>
     </div>
   );
