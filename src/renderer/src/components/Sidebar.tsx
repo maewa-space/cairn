@@ -115,10 +115,10 @@ export function Sidebar({
               onClick={onOverlayClose}
             />
             <aside
-              className="surface-2 flex h-full w-[280px] max-w-[88vw] flex-col border-l hairline shadow-xl"
+              className="surface-2 flex h-full min-h-0 w-[280px] max-w-[88vw] flex-col overflow-hidden border-l hairline shadow-xl"
               style={{ animation: 'fade-up 0.18s var(--ease-out-soft) both' }}
             >
-              <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2">
+              <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 shrink-0">
                 <div className="flex items-center gap-2">
                   <QuillMark size={20} />
                   <span className="font-serif text-lg tracking-tight">Quill</span>
@@ -149,9 +149,16 @@ export function Sidebar({
   }
 
   return (
-    <aside className="surface-2 flex flex-col border-r hairline">
-      <div className="titlebar-drag h-9" />
-      <div className="flex items-center gap-2 px-4 pt-1 pb-3">
+    // h-full + min-h-0 + overflow-hidden bound the aside to its grid row
+    // height (100vh from Shell). Without this, CSS grid's default
+    // min-height:auto lets the sidebar grow to its content height — which
+    // pushes the body taller than the viewport (window scrollbar appears)
+    // AND scrolls the titlebar-drag region away (so the macOS traffic
+    // lights end up overlapping the meeting list). The flex-1 overflow-y
+    // on the meeting list inside SidebarBody handles the actual scroll.
+    <aside className="surface-2 flex h-full min-h-0 flex-col overflow-hidden border-r hairline">
+      <div className="titlebar-drag h-9 shrink-0" />
+      <div className="flex items-center gap-2 px-4 pt-1 pb-3 shrink-0">
         <QuillMark size={20} />
         <span className="font-serif text-lg tracking-tight">Quill</span>
       </div>
@@ -274,7 +281,7 @@ function SidebarBody({
     <>
       <button
         onClick={onNewMeeting}
-        className="no-drag mx-3 mb-3 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors"
+        className="no-drag shrink-0 mx-3 mb-3 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors"
         style={{
           background: 'oklch(var(--ink))',
           color: 'oklch(var(--surface))',
@@ -284,7 +291,7 @@ function SidebarBody({
         New meeting
       </button>
 
-      <div className="relative px-3 mb-3 no-drag">
+      <div className="relative px-3 mb-3 shrink-0 no-drag">
         <Search
           size={13}
           className="absolute left-5 top-1/2 -translate-y-1/2 text-ink-soft"
@@ -301,7 +308,7 @@ function SidebarBody({
         />
       </div>
 
-      <div className="no-drag">
+      <div className="shrink-0 no-drag">
         <FolderTree
           selectedFolderId={filter}
           onSelect={(next) => {
@@ -312,7 +319,7 @@ function SidebarBody({
         />
       </div>
 
-      <div className="px-3 pt-3 pb-2 eyebrow">
+      <div className="shrink-0 px-3 pt-3 pb-2 eyebrow">
         {filter === 'all'
           ? 'Recent'
           : filter === 'unfiled'
@@ -360,7 +367,7 @@ function SidebarBody({
         ))}
       </div>
 
-      <div className="border-t hairline px-2 py-2 flex flex-wrap gap-1">
+      <div className="shrink-0 border-t hairline px-2 py-2 flex flex-wrap gap-1">
         <NavLink
           to="/chat"
           onClick={onCloseDrawer}
@@ -403,7 +410,7 @@ function SidebarBody({
       </div>
       {/* Editorial running counter — adds quiet delight at the foot of
           the sidebar, derived from total meeting count. */}
-      <div className="px-3 pt-1 pb-2 text-center">
+      <div className="shrink-0 px-3 pt-1 pb-2 text-center">
         <span className="microcopy text-[11px]">
           {deriveIssue(meetings.length || 1).combined}
         </span>
