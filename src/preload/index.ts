@@ -145,6 +145,8 @@ export const quillAPI = {
         state: string;
         code?: number;
         reason?: string;
+        attempt?: number;
+        max?: number;
       }) => void,
     ): (() => void) => {
       const listener = (_e: unknown, info: Parameters<typeof handler>[0]) =>

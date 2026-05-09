@@ -386,6 +386,7 @@ export function MeetingRoute() {
             systemError={capture.systemError}
             hasMic={capture.hasMic}
             hasSystem={capture.hasSystem}
+            reconnecting={capture.reconnecting}
             micLevel={micLevel}
             systemLevel={systemLevel}
             elapsedMs={elapsedMs}

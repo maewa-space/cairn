@@ -1,42 +1,20 @@
 # Quill — Handover for next session
 
-> **Picked-up cold? Read this top-to-bottom.** Deepgram streaming
-> transcription, design audit polish, and a forest-didone icon all shipped
-> 2026-05-09. The "Queued for next session" block at the top is the active
-> punch list — three items that have to land before this is production.
+> **Picked-up cold? Read this top-to-bottom.** Deepgram streaming + reconnect
+> resilience, design audit polish, and a forest-didone icon all shipped this
+> week. The "Queued for next session" block at the top is the active punch
+> list — two items left before this is production.
 > Project: open-source Granola.ai clone (Electron + React + TypeScript).
 > Repo: https://github.com/maewa-space/quill — local: `/Users/amadeus/Claude-projects/notetaker/`.
 
 ---
 
-## Queued for next session — three items, no blockers
+## Queued for next session — two items, no blockers
 
-These were called out and explicitly deferred at end of session 2026-05-09.
-Pick them up cold.
+Reconnect-and-resume landed 2026-05-09 (later session). The remaining two
+items were deferred at end of the prior session — pick them up cold.
 
-### 1. Deepgram WebSocket reconnect-and-resume
-
-**Where:** `src/main/services/deepgram.ts`.
-**Today:** when the WS drops (network blip, idle timeout) the `close` handler
-broadcasts `deepgram:state` with `code` + `reason` and the renderer's
-`useStreamingCapture` hook surfaces an error banner. The user has to hit
-Stop and Start again.
-**Want:** transparent reconnect. On `close` (other than user-initiated),
-re-open the channel, replay any buffered frames, and continue.
-**Approach sketch:**
-- Mark `closed` only when `closeSession()` ran (user intent), so an
-  abrupt close mid-session isn't terminal.
-- Add a small in-memory frame buffer on each channel (last ~2s of PCM,
-  capped) so we can resend after reconnect.
-- Exponential backoff: 250ms → 500ms → 1s → 2s, max 4 attempts before
-  giving up and surfacing the error.
-- Forward a `deepgram:state` `{ state: 'reconnecting', attempt }` event so
-  the UI can show a quiet microcopy ("reconnecting…") instead of the red
-  error banner.
-- Test seam: extract the WS open + on-message + on-close logic into a
-  small class so a unit test can simulate close + verify resend.
-
-### 2. Deepgram-side diarization (single conversation, speaker labels)
+### 1. Deepgram-side diarization (single conversation, speaker labels)
 
 **Where:** `src/main/services/deepgram.ts` URL builder + the renderer's
 TranscriptStream rendering.
@@ -59,7 +37,7 @@ so Deepgram returns proper speaker labels (Speaker 0, Speaker 1, …).
 - TranscriptStream needs a wider speaker-tag enum than `'mic' | 'system'`
   — extend to `'mic' | 'system' | 'speaker-N'`.
 
-### 3. Language picker UI
+### 2. Language picker UI
 
 **Where:** Settings page + `useChunkedTranscriber` + `useStreamingCapture` +
 `src/main/services/deepgram.ts` URL builder.
@@ -96,7 +74,48 @@ The packaged `.app` is signed `space.maewa.quill` and ships an AudioTee Swift bi
 
 ---
 
-## What shipped today (2026-05-09)
+## What shipped today (2026-05-09, later session)
+
+### Deepgram WebSocket reconnect-and-resume
+
+A network blip or Deepgram idle timeout no longer needs the user to hit
+Stop and Start again. The channel reconnects transparently with backoff
+and replays the last ~3s of buffered PCM so the transcript continues from
+where it dropped.
+
+- `src/main/services/deepgram.ts` — `openChannel` extracted into a
+  `DeepgramChannel` class with internal state: bounded ring buffer (96 KB
+  ≈ 3s of 16kHz mono Int16, headroom for the worst-case 250+500+1000+2000ms
+  reconnect window), `closed` flag set only on user-initiated `closeSession()`,
+  reconnect counter with exponential backoff `[250, 500, 1000, 2000]ms` and
+  a hard cap of 4 attempts. On reconnect 'open', the buffer drains to the
+  new socket. After the budget is exhausted, the channel surfaces a
+  terminal `deepgram:error` ("disconnected after 4 reconnect attempts").
+- WebSocket factory injection — `__setWsFactoryForTesting` swaps the `ws`
+  module for a fake WS in unit tests so we can drive open/close/error/
+  message events deterministically without a live socket.
+- `src/preload/index.ts` — `onState` payload widened to include
+  `attempt` + `max` so a future UI could show "reconnecting (2/4)".
+- `src/renderer/src/hooks/useStreamingCapture.ts` — tracks per-channel
+  reconnect state from `deepgram:state` events and exposes a single
+  `reconnecting: boolean` to the UI. Cleared on `reconnected` / `open` /
+  `closed`. The shared shape on `useAudioCapture` (Whisper batch path) gets
+  a `reconnecting: false` so meeting.tsx doesn't have to fork its UI.
+- `RecordControls.tsx` — quiet italic "reconnecting…" microcopy with a
+  spinner sits next to the elapsed timer when `reconnecting === true`.
+  No error banner during the cycle (transient `ws.error` events are
+  suppressed mid-reconnect; only the terminal failure surfaces).
+- 6 new unit tests in `tests/unit/deepgram-reconnect.test.ts` cover
+  backoff timing, frame replay, user-close suppression, terminal error
+  after budget exhaustion, buffer eviction cap, and transient-error
+  suppression. Tests use `vi.useFakeTimers()` + a fake `WsLike` so they
+  run in milliseconds.
+
+**Test count:** 77 → 83 unit tests, 21 e2e unchanged.
+
+---
+
+## What shipped earlier today (2026-05-09, first session)
 
 ### Deepgram streaming transcription
 
@@ -224,7 +243,7 @@ Fix locked in 996dbd2:
 
 ---
 
-## What shipped earlier today (first session)
+## What shipped on 2026-05-08 (first session)
 
 ### Editorial design revamp — 6 phases + 6 quick wins
 

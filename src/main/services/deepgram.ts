@@ -6,6 +6,9 @@
 // forwarded as raw Linear16 PCM at 16kHz mono. Deepgram returns interim
 // and final events; we IPC them back to the renderer.
 //
+// On a non-user close (network blip, idle timeout) the channel reconnects
+// transparently with exponential backoff and replays the last ~3s of
+// buffered PCM so transcription continues without the user touching Stop.
 // The renderer chooses streaming vs. batch transcription at meeting start
 // based on whether a Deepgram key is set. If you start a meeting without
 // a key Quill falls back to chunked Whisper.
@@ -27,23 +30,44 @@ const DG_URL =
 
 export type DeepgramSpeaker = 'mic' | 'system';
 
-interface ChannelSession {
-  ws: WebSocket;
-  startedAt: number;
-  // Deepgram occasionally drops connections after long silence; reconnect
-  // transparently and replay the in-flight frame queue.
-  reconnects: number;
-  closed: boolean;
+// Bounded ring buffer of PCM frames so a reconnect can replay recent audio.
+// 96 KB ≈ 3s of 16kHz mono Int16, enough headroom for the worst-case
+// reconnect window (4 attempts at 250→500→1000→2000ms = 3.75s total).
+const MAX_BUFFER_BYTES = 96 * 1024;
+
+const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
+const MAX_RECONNECTS = RECONNECT_DELAYS_MS.length;
+
+const WS_OPEN = 1;
+
+// Minimal structural type so unit tests can substitute a fake without
+// pulling in the full `ws` module.
+export interface WsLike {
+  readyState: number;
+  send(data: Buffer | string): void;
+  close(): void;
+  terminate(): void;
+  on(event: 'open', handler: () => void): void;
+  on(event: 'message', handler: (raw: { toString(): string }) => void): void;
+  on(event: 'close', handler: (code: number, reason: Buffer) => void): void;
+  on(event: 'error', handler: (err: Error) => void): void;
 }
 
-interface Session {
-  meetingId: string;
-  apiKey: string;
-  language: string | undefined;
-  channels: Map<DeepgramSpeaker, ChannelSession>;
-}
+export type WsFactory = (
+  url: string,
+  opts: { headers: Record<string, string> },
+) => WsLike;
 
-let session: Session | null = null;
+const defaultWsFactory: WsFactory = (url, opts) =>
+  new WebSocket(url, opts) as unknown as WsLike;
+
+let wsFactory: WsFactory = defaultWsFactory;
+
+/** Test seam — swap in a fake WebSocket factory for unit tests. Pass null
+ *  to restore the real `ws` module factory. */
+export function __setWsFactoryForTesting(factory: WsFactory | null): void {
+  wsFactory = factory ?? defaultWsFactory;
+}
 
 function broadcast(channel: string, payload?: unknown): void {
   for (const w of BW.getAllWindows()) {
@@ -73,78 +97,174 @@ function buildUrl(language?: string): string {
   return `${DG_URL}&language=${encodeURIComponent(language)}`;
 }
 
-function openChannel(
-  speaker: DeepgramSpeaker,
-  apiKey: string,
-  language: string | undefined,
-  meetingId: string,
-  startedAt: number,
-): ChannelSession {
-  const ws = new WebSocket(buildUrl(language), {
-    headers: { Authorization: `Token ${apiKey}` },
-  });
+class DeepgramChannel {
+  private ws: WsLike | null = null;
+  private buffer: Buffer[] = [];
+  private bufferBytes = 0;
+  private closed = false;
+  private isReconnect = false;
+  private reconnectAttempt = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const channel: ChannelSession = {
-    ws,
-    startedAt,
-    reconnects: 0,
-    closed: false,
-  };
+  constructor(
+    private readonly speaker: DeepgramSpeaker,
+    private readonly apiKey: string,
+    private readonly language: string | undefined,
+    private readonly meetingId: string,
+  ) {}
 
-  ws.on('open', () => {
-    broadcast('deepgram:state', { speaker, state: 'open' });
-  });
+  open(): void {
+    if (this.closed) return;
+    const ws = wsFactory(buildUrl(this.language), {
+      headers: { Authorization: `Token ${this.apiKey}` },
+    });
+    this.ws = ws;
+    const wasReconnect = this.isReconnect;
 
-  ws.on('message', (raw) => {
-    let msg: DeepgramResultMessage;
-    try {
-      msg = JSON.parse(raw.toString()) as DeepgramResultMessage;
-    } catch {
-      return;
-    }
-    if (msg.type === 'Results' || msg.channel) {
-      const text = msg.channel?.alternatives?.[0]?.transcript?.trim() ?? '';
-      if (!text) return;
-      const startedAtMs = Math.round((msg.start ?? 0) * 1000);
-      const durationMs = Math.round((msg.duration ?? 0) * 1000);
-      broadcast('deepgram:transcript', {
-        meetingId,
-        speaker,
-        text,
-        isFinal: !!(msg.is_final || msg.speech_final),
-        startedAtMs,
-        durationMs,
-        detectedLanguage: msg.channel?.detected_language ?? null,
+    ws.on('open', () => {
+      if (this.closed) return;
+      if (wasReconnect) {
+        // Replay buffered frames so transcription resumes from ~3s ago.
+        for (const frame of this.buffer) {
+          try {
+            ws.send(frame);
+          } catch {
+            /* socket may have flipped during the loop */
+          }
+        }
+        this.isReconnect = false;
+        this.reconnectAttempt = 0;
+        broadcast('deepgram:state', {
+          speaker: this.speaker,
+          state: 'reconnected',
+        });
+      } else {
+        broadcast('deepgram:state', { speaker: this.speaker, state: 'open' });
+      }
+    });
+
+    ws.on('message', (raw) => {
+      let msg: DeepgramResultMessage;
+      try {
+        msg = JSON.parse(raw.toString()) as DeepgramResultMessage;
+      } catch {
+        return;
+      }
+      if (msg.type === 'Results' || msg.channel) {
+        const text = msg.channel?.alternatives?.[0]?.transcript?.trim() ?? '';
+        if (!text) return;
+        const startedAtMs = Math.round((msg.start ?? 0) * 1000);
+        const durationMs = Math.round((msg.duration ?? 0) * 1000);
+        broadcast('deepgram:transcript', {
+          meetingId: this.meetingId,
+          speaker: this.speaker,
+          text,
+          isFinal: !!(msg.is_final || msg.speech_final),
+          startedAtMs,
+          durationMs,
+          detectedLanguage: msg.channel?.detected_language ?? null,
+        });
+      } else if (msg.type === 'Metadata') {
+        broadcast('deepgram:state', { speaker: this.speaker, state: 'metadata' });
+      }
+    });
+
+    ws.on('error', (err) => {
+      console.error(`[deepgram] ${this.speaker} ws error:`, err);
+      // Suppress transient errors during reconnect cycles — surface only the
+      // terminal failure (handled in close handler when budget exhausted).
+      if (this.closed || this.reconnectAttempt > 0) return;
+      broadcast('deepgram:error', {
+        speaker: this.speaker,
+        message: err instanceof Error ? err.message : String(err),
       });
-    } else if (msg.type === 'Metadata') {
-      // Initial handshake metadata; ignore but log so we have a timestamp.
-      broadcast('deepgram:state', { speaker, state: 'metadata' });
+    });
+
+    ws.on('close', (code, reason) => {
+      if (this.closed) return;
+      // Exhausted reconnect budget — surface terminal error.
+      if (this.reconnectAttempt >= MAX_RECONNECTS) {
+        this.closed = true;
+        broadcast('deepgram:state', {
+          speaker: this.speaker,
+          state: 'closed',
+          code,
+          reason: reason?.toString?.() ?? '',
+        });
+        broadcast('deepgram:error', {
+          speaker: this.speaker,
+          message: `Deepgram disconnected after ${MAX_RECONNECTS} reconnect attempts`,
+        });
+        return;
+      }
+      const delay = RECONNECT_DELAYS_MS[this.reconnectAttempt];
+      this.reconnectAttempt++;
+      this.isReconnect = true;
+      broadcast('deepgram:state', {
+        speaker: this.speaker,
+        state: 'reconnecting',
+        attempt: this.reconnectAttempt,
+        max: MAX_RECONNECTS,
+      });
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = null;
+        if (this.closed) return;
+        this.open();
+      }, delay);
+    });
+  }
+
+  send(pcm: Buffer): void {
+    if (this.closed) return;
+    // Always buffer so an in-flight reconnect can resume from the recent past.
+    this.buffer.push(pcm);
+    this.bufferBytes += pcm.length;
+    while (this.bufferBytes > MAX_BUFFER_BYTES && this.buffer.length > 1) {
+      const evicted = this.buffer.shift();
+      if (evicted) this.bufferBytes -= evicted.length;
     }
-  });
+    if (this.ws && this.ws.readyState === WS_OPEN) {
+      try {
+        this.ws.send(pcm);
+      } catch {
+        /* socket flipped between readyState check and send */
+      }
+    }
+  }
 
-  ws.on('error', (err) => {
-    console.error(`[deepgram] ${speaker} ws error:`, err);
-    broadcast('deepgram:error', {
-      speaker,
-      message: err instanceof Error ? err.message : String(err),
-    });
-  });
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (!this.ws) return;
+    if (this.ws.readyState === WS_OPEN) {
+      try {
+        // Send "close stream" frame so Deepgram flushes any pending finals.
+        this.ws.send(JSON.stringify({ type: 'CloseStream' }));
+      } catch {
+        /* socket already torn down */
+      }
+      this.ws.close();
+    } else {
+      this.ws.terminate();
+    }
+  }
 
-  ws.on('close', (code, reason) => {
-    if (channel.closed) return;
-    // Reconnect-and-resume isn't worth the complexity for v1: we lose at
-    // most a few hundred ms of the in-flight chunk and a fresh socket
-    // pops back up on the next frame send. Surface to the user instead.
-    broadcast('deepgram:state', {
-      speaker,
-      state: 'closed',
-      code,
-      reason: reason.toString(),
-    });
-  });
-
-  return channel;
+  /** Test introspection — number of bytes currently retained for replay. */
+  __bufferBytesForTesting(): number {
+    return this.bufferBytes;
+  }
 }
+
+interface Session {
+  meetingId: string;
+  channels: Map<DeepgramSpeaker, DeepgramChannel>;
+}
+
+let session: Session | null = null;
 
 export interface OpenSessionInput {
   meetingId: string;
@@ -154,47 +274,31 @@ export interface OpenSessionInput {
 
 export function openSession(input: OpenSessionInput): void {
   if (session) closeSession();
-  const startedAt = Date.now();
   session = {
     meetingId: input.meetingId,
-    apiKey: input.apiKey,
-    language: input.language,
     channels: new Map(),
   };
   for (const speaker of ['mic', 'system'] as const) {
-    session.channels.set(
+    const channel = new DeepgramChannel(
       speaker,
-      openChannel(speaker, input.apiKey, input.language, input.meetingId, startedAt),
+      input.apiKey,
+      input.language,
+      input.meetingId,
     );
+    session.channels.set(speaker, channel);
+    channel.open();
   }
 }
 
 /** Forward a raw 16kHz mono Int16 PCM frame to the matching channel. */
 export function sendFrame(speaker: DeepgramSpeaker, pcm: Buffer): void {
   if (!session) return;
-  const channel = session.channels.get(speaker);
-  if (!channel || channel.closed) return;
-  if (channel.ws.readyState === WebSocket.OPEN) {
-    channel.ws.send(pcm);
-  }
+  session.channels.get(speaker)?.send(pcm);
 }
 
 export function closeSession(): void {
   if (!session) return;
-  for (const channel of session.channels.values()) {
-    channel.closed = true;
-    if (channel.ws.readyState === WebSocket.OPEN) {
-      // Send "close stream" frame so Deepgram flushes any pending finals.
-      try {
-        channel.ws.send(JSON.stringify({ type: 'CloseStream' }));
-      } catch {
-        /* socket already torn down */
-      }
-      channel.ws.close();
-    } else {
-      channel.ws.terminate();
-    }
-  }
+  for (const channel of session.channels.values()) channel.close();
   session = null;
 }
 
@@ -229,6 +333,23 @@ export function parseDeepgramMessage(raw: string, speaker: DeepgramSpeaker): {
     detectedLanguage: msg.channel?.detected_language ?? null,
   };
 }
+
+/** Test seam — construct an isolated channel for unit tests. */
+export function __createChannelForTesting(args: {
+  speaker: DeepgramSpeaker;
+  apiKey: string;
+  language?: string;
+  meetingId: string;
+}): DeepgramChannel {
+  return new DeepgramChannel(
+    args.speaker,
+    args.apiKey,
+    args.language,
+    args.meetingId,
+  );
+}
+
+export type { DeepgramChannel };
 
 // Re-export for type compatibility with main/ipc imports.
 export type { BrowserWindow };

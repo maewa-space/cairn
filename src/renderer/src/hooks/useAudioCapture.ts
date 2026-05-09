@@ -24,6 +24,10 @@ export interface UseAudioCaptureReturn {
   retrySystem: () => Promise<void>;
   hasMic: boolean;
   hasSystem: boolean;
+  /** Always false in the batch (Whisper) pipeline — surfaces only in
+   *  streaming (Deepgram) mode but kept on the shared shape so meeting.tsx
+   *  doesn't have to fork its UI between pipelines. */
+  reconnecting: boolean;
 }
 
 interface StreamRecorder {
@@ -355,6 +359,7 @@ export function useAudioCapture(opts: UseAudioCaptureOptions): UseAudioCaptureRe
     retrySystem,
     hasMic,
     hasSystem,
+    reconnecting: false,
   };
 }
 

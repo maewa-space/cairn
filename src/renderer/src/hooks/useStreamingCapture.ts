@@ -47,6 +47,10 @@ interface UseStreamingCaptureResult {
   systemError: string | null;
   hasMic: boolean;
   hasSystem: boolean;
+  /** Set while the Deepgram WS is reconnecting after a non-user close. The
+   *  UI surfaces a quiet "reconnecting…" microcopy instead of an error
+   *  banner; cleared on the next 'reconnected' or 'open' state event. */
+  reconnecting: boolean;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   retrySystem: () => Promise<void>;
@@ -63,6 +67,11 @@ export function useStreamingCapture(
   const [systemError, setSystemError] = useState<string | null>(null);
   const [hasMic, setHasMic] = useState(false);
   const [hasSystem, setHasSystem] = useState(false);
+  // Track per-channel reconnect state and derive a single boolean for the UI.
+  const [reconnectingChannels, setReconnectingChannels] = useState<{
+    mic: boolean;
+    system: boolean;
+  }>({ mic: false, system: false });
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -208,7 +217,18 @@ export function useStreamingCapture(
         });
       }
     });
-    stateUnsubRef.current = window.quill.deepgram.onState(() => undefined);
+    stateUnsubRef.current = window.quill.deepgram.onState((info) => {
+      if (info.speaker !== 'mic' && info.speaker !== 'system') return;
+      if (info.state === 'reconnecting') {
+        setReconnectingChannels((prev) => ({ ...prev, [info.speaker]: true }));
+      } else if (
+        info.state === 'reconnected' ||
+        info.state === 'open' ||
+        info.state === 'closed'
+      ) {
+        setReconnectingChannels((prev) => ({ ...prev, [info.speaker]: false }));
+      }
+    });
     errorUnsubRef.current = window.quill.deepgram.onError((info) => {
       if (info.speaker === 'mic') setMicError(info.message);
       else setSystemError(info.message);
@@ -265,6 +285,7 @@ export function useStreamingCapture(
     cleanupListeners();
     setHasMic(false);
     setHasSystem(false);
+    setReconnectingChannels({ mic: false, system: false });
     setState('idle');
   }, [cleanupListeners, cleanupMic, state]);
 
@@ -300,6 +321,7 @@ export function useStreamingCapture(
     systemError,
     hasMic,
     hasSystem,
+    reconnecting: reconnectingChannels.mic || reconnectingChannels.system,
     start,
     stop,
     retrySystem,

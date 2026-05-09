@@ -7,6 +7,9 @@ interface RecordControlsProps {
   systemError: string | null;
   hasMic: boolean;
   hasSystem: boolean;
+  /** Streaming-only — surfaces a quiet "reconnecting…" indicator so a brief
+   *  WS drop doesn't read as a hard error. */
+  reconnecting?: boolean;
   micLevel: number;
   systemLevel: number;
   elapsedMs: number;
@@ -61,6 +64,16 @@ export function RecordControls(props: RecordControlsProps) {
             >
               <Loader2 size={11} className="animate-spin" />
               <span className="tabular-nums">{props.pendingChunks}</span>
+            </div>
+          )}
+          {props.reconnecting && (
+            <div
+              className="flex items-center gap-1 text-[11px] text-ink-soft italic"
+              title="Reconnecting to Deepgram — buffered audio will replay automatically"
+              data-testid="reconnecting"
+            >
+              <Loader2 size={11} className="animate-spin" />
+              <span className="font-serif">reconnecting…</span>
             </div>
           )}
           <div className="flex items-center gap-1">
