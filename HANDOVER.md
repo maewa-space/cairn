@@ -143,6 +143,16 @@ The brand `--moss` token in `tokens.css` simultaneously shifted from `52% 0.085 
 
 Compact single-line rows (title + relative-time stamp on the right) instead of the previous two-line title-and-meta layout. About 2× more meetings fit in the same vertical space. Scroll gutter is now reserved (`overflow-y: scroll`) so the area doesn't shift width when the list overflows. New helper `formatRelativeShort` in `lib/date.ts` produces `now / 12m / 5h / 3d / 8w / May 8` stamps.
 
+### Sidebar overflow containment (load-bearing — read this if you touch Shell/Sidebar)
+
+The aside is a CSS grid item, and grid items default to `min-height: auto` — meaning they grow to their content's intrinsic height instead of respecting the row's `h-screen`. With ~30+ meetings in the list, the aside spilled past the viewport, the body got a vertical scrollbar, and macOS traffic-lights ended up overlapping the FolderTree (because the titlebar-drag region scrolled away with the sidebar content).
+
+Fix locked in 996dbd2:
+- Aside (full + drawer variants) gets `h-full min-h-0 overflow-hidden`. Now strictly bounded to its grid row; only the inner flex-1 list scrolls.
+- Every static row in `SidebarBody` gets `shrink-0`: New Meeting button, search, FolderTree wrapper, eyebrow, nav-row footer, Vol/Issue counter, titlebar-drag.
+
+**Anti-pattern to avoid:** removing any of those `shrink-0` classes or removing `min-h-0 overflow-hidden` from the aside. The flex math collapses immediately and the body grows a scrollbar again.
+
 ---
 
 ## What shipped earlier (2026-05-08, second session)
