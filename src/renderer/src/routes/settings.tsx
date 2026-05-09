@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
+  TRANSCRIPT_LANGUAGES,
+  languageToStored,
+} from '@shared/transcript-language.js';
+import {
   Calendar,
   Check,
   KeyRound,
+  Languages,
   RefreshCw,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { Masthead } from '../components/Masthead';
 import { formatIssueDate } from '../lib/issue';
@@ -143,6 +149,14 @@ export function SettingsRoute() {
             }
             onRemove={() => removeKey('anthropic')}
           />
+        </section>
+
+        <section className="mt-14">
+          <div className="flex items-baseline justify-between mb-3">
+            <span className="eyebrow">Transcription</span>
+          </div>
+          <div className="rule mb-4" />
+          <TranscriptionCard />
         </section>
 
         <section className="mt-14">
@@ -341,6 +355,134 @@ function CalendarCard() {
           last error: {status.lastError}
         </p>
       )}
+    </div>
+  );
+}
+
+function TranscriptionCard() {
+  const [language, setLanguage] = useState<string>('auto');
+  const [diarize, setDiarize] = useState(false);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      window.quill.settings.get('transcript.language'),
+      window.quill.settings.get('transcript.diarize'),
+    ])
+      .then(([lang, diar]) => {
+        if (!alive) return;
+        setLanguage(lang ?? 'auto');
+        setDiarize(diar === '1');
+      })
+      .catch((err: unknown) => {
+        console.warn('[settings] transcript settings load failed:', err);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const flashSaved = (label: string) => {
+    setSavedNote(label);
+    window.setTimeout(() => setSavedNote((cur) => (cur === label ? null : cur)), 1600);
+  };
+
+  const onLanguageChange = async (next: string) => {
+    setLanguage(next);
+    await window.quill.settings.set('transcript.language', next);
+    flashSaved('language');
+  };
+
+  const onDiarizeChange = async (next: boolean) => {
+    setDiarize(next);
+    await window.quill.settings.set('transcript.diarize', next ? '1' : '0');
+    flashSaved('diarize');
+  };
+
+  return (
+    <div
+      className="card py-5 pr-1 pl-0"
+      style={{ background: 'transparent', border: 'none', borderRadius: 0 }}
+    >
+      <div className="rule mb-4" />
+      <div className="flex items-start gap-3">
+        <Languages size={14} className="text-moss mt-1" />
+        <div className="flex-1">
+          <span
+            className="font-serif text-xl tracking-tight"
+            style={{ letterSpacing: '-0.018em', fontWeight: 500 }}
+          >
+            Language
+          </span>
+          {savedNote === 'language' && (
+            <span
+              className="dateline ml-2"
+              style={{ color: 'oklch(var(--moss))' }}
+              data-testid="transcript-language-saved"
+            >
+              <Check size={10} strokeWidth={3} className="inline mb-0.5" /> saved
+            </span>
+          )}
+          <div className="mt-1.5 text-sm text-ink-muted leading-relaxed max-w-prose">
+            Auto-detect handles English, German, Spanish, French, and most major
+            European languages well. Pin a specific language for noisy mixed-language
+            calls or unusual accents.
+          </div>
+          <select
+            value={language}
+            onChange={(e) => onLanguageChange(e.target.value)}
+            className="input mt-3"
+            style={{ maxWidth: '20rem' }}
+            data-testid="transcript-language-select"
+          >
+            {TRANSCRIPT_LANGUAGES.map((opt) => (
+              <option key={languageToStored(opt.code)} value={languageToStored(opt.code)}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="rule mt-6 mb-4" />
+      <div className="flex items-start gap-3">
+        <Users size={14} className="text-moss mt-1" />
+        <div className="flex-1">
+          <span
+            className="font-serif text-xl tracking-tight"
+            style={{ letterSpacing: '-0.018em', fontWeight: 500 }}
+          >
+            Speaker labels
+          </span>
+          {savedNote === 'diarize' && (
+            <span
+              className="dateline ml-2"
+              style={{ color: 'oklch(var(--moss))' }}
+              data-testid="transcript-diarize-saved"
+            >
+              <Check size={10} strokeWidth={3} className="inline mb-0.5" /> saved
+            </span>
+          )}
+          <div className="mt-1.5 text-sm text-ink-muted leading-relaxed max-w-prose">
+            For multi-person calls, ask Deepgram to label each voice on the
+            other side as <em>Speaker 1</em>, <em>Speaker 2</em>, etc. Your
+            microphone always shows up as <em>You</em>. Off by default — the
+            simple "You / Other" tag is cleaner for 1-on-1s.
+          </div>
+          <label className="mt-3 inline-flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={diarize}
+              onChange={(e) => onDiarizeChange(e.target.checked)}
+              data-testid="transcript-diarize-toggle"
+            />
+            <span className="text-ink-muted">
+              Identify speakers on the other side
+            </span>
+          </label>
+        </div>
+      </div>
     </div>
   );
 }

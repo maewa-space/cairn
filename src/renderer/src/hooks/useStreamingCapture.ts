@@ -27,6 +27,11 @@ export type CaptureState =
 
 export interface StreamingCaptureOptions {
   meetingId: string;
+  /** ISO-639-1 / BCP-47 code, or undefined to let Deepgram auto-detect. */
+  language?: string;
+  /** When true, ask Deepgram to diarize each channel (system audio gets
+   *  per-speaker labels). The mic channel always renders as "You". */
+  diarize?: boolean;
   /** Called on every Deepgram transcript event. The hook upgrades interim
    *  to final transparently — callers see one onEntry per finalized span. */
   onEntry: (entry: TranscriptEntry) => void;
@@ -243,7 +248,11 @@ export function useStreamingCapture(
     //    checks isDeepgramRunning() on every PCM frame, so the streaming
     //    fork only kicks in once the session exists.
     try {
-      await window.quill.deepgram.open({ meetingId: opts.meetingId });
+      await window.quill.deepgram.open({
+        meetingId: opts.meetingId,
+        language: opts.language,
+        diarize: opts.diarize,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);

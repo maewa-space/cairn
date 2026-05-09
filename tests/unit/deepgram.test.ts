@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parseDeepgramMessage } from '../../src/main/services/deepgram.js';
+import {
+  parseDeepgramMessage,
+  __buildUrlForTesting,
+} from '../../src/main/services/deepgram.js';
 
 describe('parseDeepgramMessage', () => {
   it('extracts text + timing from a Results message', () => {
@@ -59,5 +62,72 @@ describe('parseDeepgramMessage', () => {
     });
     const parsed = parseDeepgramMessage(raw, 'mic');
     expect(parsed!.detectedLanguage).toBe('de');
+  });
+
+  it('returns null speakerIndex when diarization is not active', () => {
+    const raw = JSON.stringify({
+      type: 'Results',
+      is_final: true,
+      channel: {
+        alternatives: [
+          {
+            transcript: 'plain transcript',
+            words: [{ word: 'plain' }, { word: 'transcript' }],
+          },
+        ],
+      },
+    });
+    const parsed = parseDeepgramMessage(raw, 'system');
+    expect(parsed!.speakerIndex).toBeNull();
+  });
+
+  it('extracts the dominant speaker from diarized words', () => {
+    const raw = JSON.stringify({
+      type: 'Results',
+      is_final: true,
+      channel: {
+        alternatives: [
+          {
+            transcript: 'hi there everyone',
+            // 0 dominates 2-to-1 — should win even though 1 has one word.
+            words: [
+              { word: 'hi', speaker: 0 },
+              { word: 'there', speaker: 0 },
+              { word: 'everyone', speaker: 1 },
+            ],
+          },
+        ],
+      },
+    });
+    const parsed = parseDeepgramMessage(raw, 'system');
+    expect(parsed!.speakerIndex).toBe(0);
+  });
+});
+
+describe('buildUrl', () => {
+  it('omits language and diarize for the bare auto-detect case', () => {
+    const url = __buildUrlForTesting();
+    expect(url).not.toContain('language=');
+    expect(url).not.toContain('diarize=');
+  });
+
+  it('skips the language param when explicitly "auto"', () => {
+    const url = __buildUrlForTesting('auto');
+    expect(url).not.toContain('language=');
+  });
+
+  it('appends &language=<code> for an explicit locale', () => {
+    expect(__buildUrlForTesting('de')).toContain('&language=de');
+    expect(__buildUrlForTesting('zh')).toContain('&language=zh');
+  });
+
+  it('appends &diarize=true when diarization is on', () => {
+    expect(__buildUrlForTesting(undefined, true)).toContain('&diarize=true');
+    expect(__buildUrlForTesting('en', true)).toContain('&language=en');
+    expect(__buildUrlForTesting('en', true)).toContain('&diarize=true');
+  });
+
+  it('omits diarize when explicitly false', () => {
+    expect(__buildUrlForTesting('en', false)).not.toContain('diarize=');
   });
 });

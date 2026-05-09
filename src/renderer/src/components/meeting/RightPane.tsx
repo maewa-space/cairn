@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { TranscriptEntry } from '@shared/types.js';
+import type { Speaker, TranscriptEntry } from '@shared/types.js';
 import { ChatPanel } from '../chat/ChatPanel';
 import { TranscriptStream } from './TranscriptStream';
 
@@ -11,7 +11,7 @@ interface RightPaneProps {
   /** Optional in-flight Deepgram interim text. Rendered as italic-muted
    *  ghost at the bottom of the transcript while the speaker is still
    *  talking. Final entries land in `entries`. */
-  interim?: { speaker: 'mic' | 'system'; text: string } | null;
+  interim?: { speaker: Speaker; text: string } | null;
 }
 
 const TAB_PREF_KEY = 'quill.meeting.rightPane';

@@ -1,4 +1,21 @@
-export type Speaker = 'system' | 'mic';
+// Speaker tag stored alongside each transcript entry.
+//   - 'mic'        — the user's microphone (always rendered as "You")
+//   - 'system'     — system audio with no per-speaker breakdown ("Other")
+//   - `speaker-N`  — Deepgram-diarized speaker on the system channel
+//                    (1-indexed for human display: speaker-1, speaker-2, ...)
+export type Speaker = 'system' | 'mic' | `speaker-${number}`;
+
+/** True for any tag that came from Deepgram's per-channel diarization. */
+export function isDiarizedSpeaker(s: Speaker): s is `speaker-${number}` {
+  return typeof s === 'string' && s.startsWith('speaker-');
+}
+
+/** Extract the 1-indexed speaker number from a diarized tag, or null. */
+export function diarizedSpeakerIndex(s: Speaker): number | null {
+  if (!isDiarizedSpeaker(s)) return null;
+  const n = Number.parseInt(s.slice('speaker-'.length), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 export interface TranscriptEntry {
   id: string;

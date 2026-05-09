@@ -31,11 +31,21 @@ export class EnhancerError extends Error {}
 export function formatTranscript(entries: TranscriptEntry[]): string {
   return entries
     .map((e) => {
-      const speaker = e.speaker === 'mic' ? 'Me' : 'Other';
+      const speaker = enhancerSpeakerLabel(e.speaker);
       const ts = msToClock(e.startedAtMs);
       return `[${ts}] ${speaker}: ${e.text}`;
     })
     .join('\n');
+}
+
+function enhancerSpeakerLabel(speaker: TranscriptEntry['speaker']): string {
+  if (speaker === 'mic') return 'Me';
+  if (speaker === 'system') return 'Other';
+  if (typeof speaker === 'string' && speaker.startsWith('speaker-')) {
+    const n = Number.parseInt(speaker.slice('speaker-'.length), 10);
+    return Number.isFinite(n) ? `Speaker ${n}` : 'Other';
+  }
+  return 'Other';
 }
 
 function msToClock(ms: number): string {

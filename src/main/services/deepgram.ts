@@ -75,9 +75,17 @@ function broadcast(channel: string, payload?: unknown): void {
   }
 }
 
+interface DeepgramWord {
+  word?: string;
+  start?: number;
+  end?: number;
+  speaker?: number;
+}
+
 interface DeepgramAlternative {
   transcript: string;
   confidence?: number;
+  words?: DeepgramWord[];
 }
 
 interface DeepgramResultMessage {
@@ -92,9 +100,39 @@ interface DeepgramResultMessage {
   };
 }
 
-function buildUrl(language?: string): string {
-  if (!language || language === 'auto') return DG_URL;
-  return `${DG_URL}&language=${encodeURIComponent(language)}`;
+function buildUrl(language?: string, diarize?: boolean): string {
+  let url = DG_URL;
+  if (language && language !== 'auto') {
+    url += `&language=${encodeURIComponent(language)}`;
+  }
+  if (diarize) {
+    url += '&diarize=true';
+  }
+  return url;
+}
+
+/** Pick the dominant speaker across the words in a diarized transcript.
+ *  Deepgram emits one Results message per speaker turn (endpointing fires on
+ *  speaker change), so usually every word agrees — but a flaky boundary can
+ *  mix two speakers in one event. Majority wins. Returns null if nothing
+ *  has a speaker tag (diarize disabled or no words). */
+function dominantSpeaker(alt: DeepgramAlternative | undefined): number | null {
+  const words = alt?.words ?? [];
+  const counts = new Map<number, number>();
+  for (const w of words) {
+    if (typeof w.speaker !== 'number') continue;
+    counts.set(w.speaker, (counts.get(w.speaker) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  let bestSpeaker = -1;
+  let bestCount = -1;
+  for (const [speaker, count] of counts) {
+    if (count > bestCount) {
+      bestSpeaker = speaker;
+      bestCount = count;
+    }
+  }
+  return bestSpeaker >= 0 ? bestSpeaker : null;
 }
 
 class DeepgramChannel {
@@ -111,11 +149,12 @@ class DeepgramChannel {
     private readonly apiKey: string,
     private readonly language: string | undefined,
     private readonly meetingId: string,
+    private readonly diarize: boolean = false,
   ) {}
 
   open(): void {
     if (this.closed) return;
-    const ws = wsFactory(buildUrl(this.language), {
+    const ws = wsFactory(buildUrl(this.language, this.diarize), {
       headers: { Authorization: `Token ${this.apiKey}` },
     });
     this.ws = ws;
@@ -151,13 +190,25 @@ class DeepgramChannel {
         return;
       }
       if (msg.type === 'Results' || msg.channel) {
-        const text = msg.channel?.alternatives?.[0]?.transcript?.trim() ?? '';
+        const alt = msg.channel?.alternatives?.[0];
+        const text = alt?.transcript?.trim() ?? '';
         if (!text) return;
         const startedAtMs = Math.round((msg.start ?? 0) * 1000);
         const durationMs = Math.round((msg.duration ?? 0) * 1000);
+        // Per-channel diarization only meaningfully widens the system
+        // channel — the mic is always the user. So mic stays 'mic'
+        // (renders as "You"), and the system channel may upgrade to
+        // 'speaker-N' (1-indexed) when Deepgram identified a speaker.
+        let resolvedSpeaker: string = this.speaker;
+        if (this.diarize && this.speaker === 'system') {
+          const speakerIdx = dominantSpeaker(alt);
+          if (speakerIdx !== null) {
+            resolvedSpeaker = `speaker-${speakerIdx + 1}`;
+          }
+        }
         broadcast('deepgram:transcript', {
           meetingId: this.meetingId,
-          speaker: this.speaker,
+          speaker: resolvedSpeaker,
           text,
           isFinal: !!(msg.is_final || msg.speech_final),
           startedAtMs,
@@ -270,6 +321,10 @@ export interface OpenSessionInput {
   meetingId: string;
   apiKey: string;
   language?: string;
+  /** When true, the system-audio channel is opened with `diarize=true` so
+   *  Deepgram tags each speaker on the other side. Mic channel always
+   *  collapses to "You" — diarization there would just split the user. */
+  diarize?: boolean;
 }
 
 export function openSession(input: OpenSessionInput): void {
@@ -279,11 +334,15 @@ export function openSession(input: OpenSessionInput): void {
     channels: new Map(),
   };
   for (const speaker of ['mic', 'system'] as const) {
+    // Only the system channel benefits from diarization — turning it on
+    // for the mic just splits the user across spurious sub-speakers.
+    const channelDiarize = input.diarize === true && speaker === 'system';
     const channel = new DeepgramChannel(
       speaker,
       input.apiKey,
       input.language,
       input.meetingId,
+      channelDiarize,
     );
     session.channels.set(speaker, channel);
     channel.open();
@@ -307,13 +366,16 @@ export function isSessionRunning(): boolean {
 }
 
 /** Test seam — exposed for unit tests of the message parser without needing
- *  a live WebSocket. Same shape as what we forward over IPC. */
+ *  a live WebSocket. Same shape as what we forward over IPC. The optional
+ *  `speakerIndex` is the dominant speaker when diarization is enabled
+ *  (0-indexed as Deepgram returns it). */
 export function parseDeepgramMessage(raw: string, speaker: DeepgramSpeaker): {
   text: string;
   isFinal: boolean;
   startedAtMs: number;
   durationMs: number;
   detectedLanguage: string | null;
+  speakerIndex: number | null;
 } | null {
   let msg: DeepgramResultMessage;
   try {
@@ -322,7 +384,8 @@ export function parseDeepgramMessage(raw: string, speaker: DeepgramSpeaker): {
     return null;
   }
   if (msg.type !== 'Results' && !msg.channel) return null;
-  const text = msg.channel?.alternatives?.[0]?.transcript?.trim() ?? '';
+  const alt = msg.channel?.alternatives?.[0];
+  const text = alt?.transcript?.trim() ?? '';
   if (!text) return null;
   void speaker;
   return {
@@ -331,6 +394,7 @@ export function parseDeepgramMessage(raw: string, speaker: DeepgramSpeaker): {
     startedAtMs: Math.round((msg.start ?? 0) * 1000),
     durationMs: Math.round((msg.duration ?? 0) * 1000),
     detectedLanguage: msg.channel?.detected_language ?? null,
+    speakerIndex: dominantSpeaker(alt),
   };
 }
 
@@ -340,13 +404,20 @@ export function __createChannelForTesting(args: {
   apiKey: string;
   language?: string;
   meetingId: string;
+  diarize?: boolean;
 }): DeepgramChannel {
   return new DeepgramChannel(
     args.speaker,
     args.apiKey,
     args.language,
     args.meetingId,
+    args.diarize ?? false,
   );
+}
+
+/** Test seam — exposed for unit tests of the URL builder. */
+export function __buildUrlForTesting(language?: string, diarize?: boolean): string {
+  return buildUrl(language, diarize);
 }
 
 export type { DeepgramChannel };

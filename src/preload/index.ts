@@ -115,8 +115,11 @@ export const quillAPI = {
       ipcRenderer.invoke('disable-loopback-audio'),
   },
   deepgram: {
-    open: (args: { meetingId: string; language?: string }): Promise<void> =>
-      ipcRenderer.invoke('deepgram:open', args),
+    open: (args: {
+      meetingId: string;
+      language?: string;
+      diarize?: boolean;
+    }): Promise<void> => ipcRenderer.invoke('deepgram:open', args),
     sendFrame: (args: {
       speaker: 'mic' | 'system';
       pcm: ArrayBuffer;
@@ -126,7 +129,9 @@ export const quillAPI = {
     onTranscript: (
       handler: (event: {
         meetingId: string;
-        speaker: 'mic' | 'system';
+        // Resolved speaker tag: 'mic' | 'system' for the channel-tag path, or
+        // `speaker-N` (1-indexed) when Deepgram diarized the system channel.
+        speaker: 'mic' | 'system' | `speaker-${number}`;
         text: string;
         isFinal: boolean;
         startedAtMs: number;
@@ -204,6 +209,14 @@ export const quillAPI = {
       ipcRenderer.invoke('permissions:askMicrophone'),
     openSystemSettings: (pane: 'mic' | 'screen'): Promise<void> =>
       ipcRenderer.invoke('permissions:openSystemSettings', pane),
+  },
+  settings: {
+    /** Read a setting value. Returns null when unset or not renderer-readable. */
+    get: (key: string): Promise<string | null> =>
+      ipcRenderer.invoke('settings:get', key),
+    /** Write a setting value. Throws if the key isn't on the main-process whitelist. */
+    set: (key: string, value: string): Promise<void> =>
+      ipcRenderer.invoke('settings:set', key, value),
   },
   keys: {
     has: (name: 'openai' | 'anthropic' | 'openrouter' | 'deepgram'): Promise<boolean> =>

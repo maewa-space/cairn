@@ -10,6 +10,7 @@ import type {
   Meeting,
   Recipe,
   RecipeScope,
+  Speaker,
   Template,
   TranscriptEntry,
 } from '@shared/types.js';
@@ -92,7 +93,9 @@ interface MeetingRow {
 interface TranscriptRow {
   id: string;
   meeting_id: string;
-  speaker: 'system' | 'mic';
+  // SQLite stores the raw speaker tag (mic / system / speaker-N) as TEXT.
+  // The wider TypeScript Speaker union covers diarized labels.
+  speaker: Speaker;
   text: string;
   started_at_ms: number;
   duration_ms: number;

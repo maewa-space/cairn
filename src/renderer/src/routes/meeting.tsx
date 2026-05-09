@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { animate } from 'motion';
-import type { Folder, Meeting, TranscriptEntry } from '@shared/types.js';
+import type { Folder, Meeting, Speaker, TranscriptEntry } from '@shared/types.js';
 import { NotesEditor } from '../components/meeting/NotesEditor';
 import { RecordControls, RedDot } from '../components/meeting/RecordControls';
 import { EnhanceBar } from '../components/meeting/EnhanceBar';
@@ -13,6 +13,7 @@ import { useChunkedTranscriber } from '../hooks/useChunkedTranscriber';
 import { useStreamingCapture } from '../hooks/useStreamingCapture';
 import { BREAKPOINTS, useMediaQuery } from '../hooks/useMediaQuery';
 import { formatTime } from '../lib/date';
+import { storedToLanguage } from '@shared/transcript-language.js';
 
 const NOTES_DEBOUNCE_MS = 600;
 
@@ -37,13 +38,17 @@ export function MeetingRoute() {
   const [notesError, setNotesError] = useState<string | null>(null);
   const [bodyTab, setBodyTab] = useState<'body' | 'side'>('body');
   const [interim, setInterim] = useState<{
-    speaker: 'mic' | 'system';
+    speaker: Speaker;
     text: string;
   } | null>(null);
   // Pipeline choice — flips to streaming when the user has a Deepgram key
   // saved. Resolved at mount; switching providers mid-meeting is not
   // supported (we'd have to tear down + rebuild the audio pipeline).
   const [streamingMode, setStreamingMode] = useState<boolean | null>(null);
+  // Transcription preferences — read once at mount. Switching mid-meeting
+  // would require restarting the WS / Whisper queue, so we snapshot.
+  const [language, setLanguage] = useState<string | undefined>(undefined);
+  const [diarize, setDiarize] = useState(false);
   const isNarrow = useMediaQuery(BREAKPOINTS.narrowBody);
   const isMobile = useMediaQuery(BREAKPOINTS.mobile);
   const startedRef = useRef<number | null>(null);
@@ -53,13 +58,19 @@ export function MeetingRoute() {
   // toggles. Reduced-motion guard collapses to ~0ms automatically.
   const firstViewRef = useRef(true);
 
-  // Resolve pipeline once on mount. Streaming requires a Deepgram key.
+  // Resolve pipeline + transcription preferences once on mount.
   useEffect(() => {
     let alive = true;
-    window.quill.keys
-      .has('deepgram')
-      .then((has) => {
-        if (alive) setStreamingMode(has);
+    Promise.all([
+      window.quill.keys.has('deepgram'),
+      window.quill.settings.get('transcript.language'),
+      window.quill.settings.get('transcript.diarize'),
+    ])
+      .then(([has, lang, diar]) => {
+        if (!alive) return;
+        setStreamingMode(has);
+        setLanguage(storedToLanguage(lang));
+        setDiarize(diar === '1');
       })
       .catch(() => {
         if (alive) setStreamingMode(false);
@@ -70,13 +81,9 @@ export function MeetingRoute() {
   }, []);
 
   const { enqueue, pending: pendingChunks } = useChunkedTranscriber({
-    // Auto-detect language. We previously pinned to English as a defensive
-    // workaround for Whisper hallucinating in random languages on silent
-    // input — but the mic + system-audio RMS gates now drop silent chunks
-    // before they ever reach Whisper, so auto-detect is safe and lets
-    // German / Spanish / French speakers actually transcribe in their
-    // language. If hallucinated language drift returns we'll surface a
-    // user-facing language picker in Settings.
+    // Auto-detect by default — the user can pin a specific language in
+    // Settings → Transcription if they want to lock it down.
+    language,
     onEntry: (entry) => setEntries((prev) => [...prev, entry]),
     onError: (err) => console.error('[transcribe]', err),
   });
@@ -97,6 +104,8 @@ export function MeetingRoute() {
 
   const streamingCapture = useStreamingCapture({
     meetingId: id,
+    language,
+    diarize,
     onEntry: (entry) => {
       setEntries((prev) => [...prev, entry]);
       setInterim(null);

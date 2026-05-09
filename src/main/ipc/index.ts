@@ -10,6 +10,7 @@ import {
   recipesRepo,
   foldersRepo,
   chatRepo,
+  settingsRepo,
 } from '../services/db.js';
 import { getKey, hasKey, setKey, deleteKey, type KeyName } from '../services/keychain.js';
 import { transcribe, type WhisperModel } from '../services/whisper.js';
@@ -134,13 +135,14 @@ export function registerIpcHandlers(): void {
   // AudioTee (system, which already produces 16-bit PCM at 16kHz).
   ipcMain.handle(
     'deepgram:open',
-    (_e, args: { meetingId: string; language?: string }) => {
+    (_e, args: { meetingId: string; language?: string; diarize?: boolean }) => {
       const apiKey = getKey('deepgram');
       if (!apiKey) throw new Error('Deepgram API key not set.');
       openDeepgramSession({
         meetingId: args.meetingId,
         apiKey,
         language: args.language,
+        diarize: args.diarize,
       });
     },
   );
@@ -154,6 +156,24 @@ export function registerIpcHandlers(): void {
     closeDeepgramSession();
   });
   ipcMain.handle('deepgram:isRunning', () => isDeepgramRunning());
+
+  // Generic settings bridge — renderer-writable keys whitelisted to keep
+  // the IPC surface narrow. Calendar/keychain still use settingsRepo
+  // directly via their own internal helpers.
+  const RENDERER_WRITABLE_SETTINGS = new Set([
+    'transcript.language',
+    'transcript.diarize',
+  ]);
+  ipcMain.handle('settings:get', (_e, key: string): string | null => {
+    if (!RENDERER_WRITABLE_SETTINGS.has(key)) return null;
+    return settingsRepo.get(key);
+  });
+  ipcMain.handle('settings:set', (_e, key: string, value: string): void => {
+    if (!RENDERER_WRITABLE_SETTINGS.has(key)) {
+      throw new Error(`settings:set: key "${key}" is not renderer-writable`);
+    }
+    settingsRepo.set(key, value);
+  });
 
   // Permissions (macOS TCC)
   ipcMain.handle('permissions:status', () => {

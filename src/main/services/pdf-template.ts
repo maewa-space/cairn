@@ -413,8 +413,19 @@ function formatTranscriptMeta(entry: TranscriptEntry): string {
   const seconds = Math.floor(entry.startedAtMs / 1000);
   const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
   const ss = String(seconds % 60).padStart(2, '0');
-  const speaker = entry.speaker === 'mic' ? 'You' : 'System';
+  const speaker = transcriptSpeakerLabel(entry.speaker);
   return `${speaker} · ${mm}:${ss}`;
+}
+
+function transcriptSpeakerLabel(speaker: TranscriptEntry['speaker']): string {
+  if (speaker === 'mic') return 'You';
+  if (speaker === 'system') return 'System';
+  // Diarized speaker labels (`speaker-N`) — render as "Speaker N".
+  if (typeof speaker === 'string' && speaker.startsWith('speaker-')) {
+    const n = Number.parseInt(speaker.slice('speaker-'.length), 10);
+    return Number.isFinite(n) ? `Speaker ${n}` : 'System';
+  }
+  return 'System';
 }
 
 function escapeHtml(s: string): string {

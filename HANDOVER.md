@@ -1,62 +1,44 @@
 # Quill — Handover for next session
 
 > **Picked-up cold? Read this top-to-bottom.** Deepgram streaming + reconnect
-> resilience, design audit polish, and a forest-didone icon all shipped this
-> week. The "Queued for next session" block at the top is the active punch
-> list — two items left before this is production.
+> resilience, per-channel diarization, language picker, design audit polish,
+> and a forest-didone icon all shipped this week. The three queued items
+> from the prior handover are all done — there are no blockers left.
 > Project: open-source Granola.ai clone (Electron + React + TypeScript).
 > Repo: https://github.com/maewa-space/quill — local: `/Users/amadeus/Claude-projects/notetaker/`.
 
 ---
 
-## Queued for next session — two items, no blockers
+## Queued for next session — open ideas, no blockers
 
-Reconnect-and-resume landed 2026-05-09 (later session). The remaining two
-items were deferred at end of the prior session — pick them up cold.
+The three items from the prior handover (reconnect-and-resume, diarization,
+language picker) all shipped 2026-05-09. Below are softer ideas to consider
+when the time comes — none are blockers for production.
 
-### 1. Deepgram-side diarization (single conversation, speaker labels)
+### A. Per-call language override
 
-**Where:** `src/main/services/deepgram.ts` URL builder + the renderer's
-TranscriptStream rendering.
-**Today:** we open two separate WebSockets — one per channel (mic +
-system) — so speakers are tagged by channel: "YOU" (mic) or "OTHER"
-(system). That works for a 1-on-1 call but conflates everyone on the
-"other" side into a single voice.
-**Want:** option to merge to one socket with `multichannel=true&diarize=true`
-so Deepgram returns proper speaker labels (Speaker 0, Speaker 1, …).
-**Approach sketch:**
-- Encode mic + system as a stereo PCM stream in the renderer (interleave
-  Int16 frames: L = mic, R = system) and ship one WebSocket.
-- URL flags: `&channels=2&multichannel=true&diarize=true`.
-- Deepgram returns events with a `channel_index` + `speaker` field. Map
-  `speaker=N` to "You", "Person 2", "Person 3", … (the user's voice should
-  always be on channel 0 = "You").
-- Setting in Settings → Calendar/Audio: "Diarize multi-speaker calls
-  (Deepgram)" toggle. Default off (current channel-tag behavior is fine
-  for 1-on-1).
-- TranscriptStream needs a wider speaker-tag enum than `'mic' | 'system'`
-  — extend to `'mic' | 'system' | 'speaker-N'`.
+**Today:** language is a global Settings preference applied to every
+meeting. **Want:** a per-meeting override surfaced in the meeting header,
+useful when most of your meetings are German but you have a one-off
+English call. Stored on the meeting row, falls back to the global default.
 
-### 2. Language picker UI
+### B. Cross-channel diarization (single stereo WS)
 
-**Where:** Settings page + `useChunkedTranscriber` + `useStreamingCapture` +
-`src/main/services/deepgram.ts` URL builder.
-**Today:** all language is auto-detect — the Whisper REST call omits
-`language`, the Deepgram WS omits the `&language=` query param. Should
-work for English / German / Spanish / French / Italian / Portuguese /
-Dutch via Nova-3's auto-detect.
-**Want:** explicit language picker in Settings (Auto + the 12-15 most
-common locales). Stored in `settings` table at
-`transcript.language` (existing settingsRepo). Read at meeting mount.
-**Approach sketch:**
-- Generic `settings:get` / `settings:set` IPC + preload bridge (currently
-  only `keys:*` is exposed; calendar reuses internal keys directly).
-- Settings page: a select dropdown above the Calendar card. Options:
-  Auto, English, German, Spanish, French, Italian, Portuguese, Dutch,
-  Japanese, Mandarin, Korean, Hindi, Russian, Polish.
-- Pass the resolved code (`undefined` for Auto) into both transcribers.
-- `deepgram.ts` `buildUrl()` already honors `language` — just thread it
-  through `openSession({ language })`.
+**Today:** per-channel diarization splits the *system* channel into
+Speaker 1 / Speaker 2 / Speaker 3 (mic stays "You"). That's the simple
+correct architecture. **Want (maybe):** merge mic + system into one stereo
+WebSocket with `&multichannel=true&diarize=true` so Deepgram can identify
+when the same voice appears on both sides (e.g. you also being heard via
+the other party's microphone, or echo). Requires a sample-aligned stereo
+interleaver in main; ~50ms latency budget; extra complexity for a small
+quality bump. Skip until there's evidence it matters.
+
+### C. Speaker name remap
+
+**Today:** diarized speakers render as "Speaker 1", "Speaker 2", etc.
+**Want:** let the user rename them inline in the transcript ("Speaker 1
+→ Sarah") and persist the mapping per-meeting. Knowing who said what
+makes the enhanced notes much richer.
 
 ---
 
@@ -64,17 +46,79 @@ common locales). Stored in `settings` table at
 
 **Everything ships green.**
 
-- **77 unit tests** pass (vitest) — was 71 + 6 Deepgram parser tests
-- **21 mocked e2e** pass (playwright + electron) — unchanged
+- **99 unit tests** pass (vitest) — was 83
+- **22 mocked e2e** pass (playwright + electron) — was 21
 - **3 DMG smoke** pass against the packaged app
 - **typecheck** clean (`tsc --noEmit` on both `tsconfig.node.json` and `tsconfig.web.json`)
-- **production build** clean (`pnpm build`; ~1.28 MB JS, ~52 KB CSS, fonts self-hosted as woff2 chunks)
+- **production build** clean (`pnpm build`; ~1.29 MB JS, ~52 KB CSS, fonts self-hosted as woff2 chunks)
 
 The packaged `.app` is signed `space.maewa.quill` and ships an AudioTee Swift binary as `extraResources` for system audio. Runs offline (Whisper) or via Deepgram WS streaming when the user sets a `dg-…` key.
 
 ---
 
-## What shipped today (2026-05-09, later session)
+## What shipped today (2026-05-09, third session)
+
+### Language picker
+
+Pin transcription to a specific language (or leave on Auto-detect) in
+Settings → Transcription. Auto-detect already handled the major European
+languages — this just makes it explicit and handy for noisy / mixed-
+language calls where Whisper or Nova-3 occasionally guesses the wrong
+locale on the first chunk.
+
+- `src/shared/transcript-language.ts` — 14 supported locales (English,
+  German, Spanish, French, Italian, Portuguese, Dutch, Japanese,
+  Mandarin, Korean, Hindi, Russian, Polish, Swedish) plus Auto. Helpers
+  to round-trip the selection through SQLite settings.
+- `transcript.language` setting written via the new generic
+  `window.quill.settings.get/set` IPC bridge — a whitelisted pair of
+  handlers in main that share `settingsRepo` with calendar/keychain.
+- Read once at meeting mount in `meeting.tsx` and threaded into both
+  `useChunkedTranscriber` (Whisper REST `language` param) and
+  `useStreamingCapture` → `deepgram.open({ language })`. The DG URL
+  builder already honored `language`; just plumbed.
+- 6 new unit tests on the helpers + e2e test exercising the dropdown
+  end-to-end through the real IPC.
+
+### Per-channel speaker diarization (Deepgram)
+
+For multi-person calls, the system channel can now identify each speaker
+on the other side as Speaker 1, Speaker 2, etc. — your microphone always
+stays "You". Off by default since the simple "You / Other" tag is cleaner
+for 1-on-1s.
+
+- `transcript.diarize` setting toggled in Settings → Transcription. When
+  on, only the system-channel WebSocket gets `&diarize=true` (mic
+  diarization would just fragment the user across spurious sub-speakers).
+- `DeepgramChannel` parses the per-word `speaker` field from each Results
+  event and picks the dominant speaker (majority vote across words).
+  System channel emits `speaker-${N+1}` (1-indexed) when diarized;
+  fallback to plain `'system'` when no speaker tag is present.
+- `Speaker` type widened from `'mic' | 'system'` to also include
+  template-literal `\`speaker-${number}\``. Helper functions
+  `isDiarizedSpeaker` / `diarizedSpeakerIndex` in `shared/types.ts`.
+- `TranscriptStream.tsx` renders "SPEAKER N · {clock}" eyebrow + a
+  per-speaker hue-rotated moss border-l so different voices read as
+  visually distinct without leaving the editorial palette.
+- PDF export + enhancement prompt formatters get a `speakerN` label too,
+  so diarized transcripts persist faithfully into the writeup.
+- Note: per-channel diarization (current architecture) is correct and
+  simple. Cross-channel diarization (single stereo WS with
+  `multichannel=true`) was the HANDOVER's original sketch — I rejected
+  it in favor of the simpler per-channel approach. See "Queued for next
+  session" → option B for the trade-off if it ever needs revisiting.
+
+### Generic settings IPC bridge
+
+`window.quill.settings.get(key)` / `settings.set(key, value)` with a
+main-process whitelist (`transcript.language`, `transcript.diarize`).
+Replaces the previous calendar-and-keychain-only pattern with a generic
+read-write surface that future preferences (per-call overrides, theme,
+etc.) can adopt without an IPC handler each.
+
+---
+
+## What shipped earlier today (2026-05-09, later session)
 
 ### Deepgram WebSocket reconnect-and-resume
 

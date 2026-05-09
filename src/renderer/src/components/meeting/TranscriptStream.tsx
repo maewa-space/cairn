@@ -1,6 +1,29 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { animate } from 'motion';
 import type { Speaker, TranscriptEntry } from '@shared/types.js';
+import { isDiarizedSpeaker, diarizedSpeakerIndex } from '@shared/types.js';
+
+/** Render label for the eyebrow above each transcript group. */
+function speakerLabel(speaker: Speaker): string {
+  if (speaker === 'mic') return 'YOU';
+  if (speaker === 'system') return 'OTHER';
+  const n = diarizedSpeakerIndex(speaker);
+  return n ? `SPEAKER ${n}` : 'OTHER';
+}
+
+/** Border color for the left-rule on each non-mic group. Diarized speakers
+ *  cycle through a small palette of moss alpha variants so different
+ *  voices read as visually distinct without leaving the editorial palette. */
+function speakerBorderColor(speaker: Speaker): string {
+  if (isDiarizedSpeaker(speaker)) {
+    const n = diarizedSpeakerIndex(speaker) ?? 1;
+    // Cycle hue offset by speaker index — same lightness/chroma so all
+    // diarized speakers read as muted moss-family but distinguishable.
+    const hueOffset = ((n - 1) * 24) % 360;
+    return `oklch(38% 0.06 calc(158 + ${hueOffset}))`;
+  }
+  return 'oklch(var(--moss) / 0.7)';
+}
 
 interface TranscriptGroup {
   /** Identifier of the *first* entry in the group; React key. */
@@ -113,7 +136,7 @@ export function TranscriptStream({
             className={`max-w-[88%] ${isMine ? 'ml-auto' : 'mr-auto'}`}
           >
             <div className={`dateline mb-1 ${isMine ? 'text-right' : ''}`}>
-              {isMine ? 'YOU' : 'OTHER'} · {clock(g.startedAtMs)}
+              {speakerLabel(g.speaker)} · {clock(g.startedAtMs)}
             </div>
             {isMine ? (
               <p className="font-serif italic text-[14.5px] leading-relaxed text-right whitespace-pre-wrap text-ink">
@@ -122,7 +145,7 @@ export function TranscriptStream({
             ) : (
               <p
                 className="pl-3 text-[14px] leading-relaxed text-ink whitespace-pre-wrap border-l-2"
-                style={{ borderColor: 'oklch(var(--moss) / 0.7)' }}
+                style={{ borderColor: speakerBorderColor(g.speaker) }}
               >
                 {g.text}
               </p>
@@ -138,7 +161,7 @@ export function TranscriptStream({
           <div
             className={`dateline mb-1 ${interim.speaker === 'mic' ? 'text-right' : ''}`}
           >
-            {interim.speaker === 'mic' ? 'YOU' : 'OTHER'} · LIVE
+            {speakerLabel(interim.speaker)} · LIVE
           </div>
           {interim.speaker === 'mic' ? (
             <p className="font-serif italic text-[14.5px] leading-relaxed text-right whitespace-pre-wrap text-ink-soft">
@@ -147,7 +170,11 @@ export function TranscriptStream({
           ) : (
             <p
               className="pl-3 text-[14px] leading-relaxed text-ink-soft whitespace-pre-wrap border-l-2"
-              style={{ borderColor: 'oklch(var(--moss) / 0.4)' }}
+              style={{
+                borderColor: isDiarizedSpeaker(interim.speaker)
+                  ? speakerBorderColor(interim.speaker)
+                  : 'oklch(var(--moss) / 0.4)',
+              }}
             >
               {interim.text}
             </p>
